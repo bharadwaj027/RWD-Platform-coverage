@@ -27,7 +27,7 @@ is affected, `VPAT Text Multiple` otherwise — followed by the affected pages, 
 the platform(s) it's present on in braces using the full VPAT wording, e.g.
 
 ```
-An image does not have a text alternative … This occurs on the following page(s): Home {Desktop}; Checkout {Desktop, Responsive Web Design Tablet}.
+An image does not have a text alternative … This occurs on the following page(s): Home (Desktop); Checkout (Desktop, Responsive Web Design Tablet).
 ```
 
 The prose is looked up by the axe Auditor **`Rule Id`** column — **never** by Success
@@ -42,8 +42,8 @@ applicable page) or `VPAT Text Multiple` (more than one), and insert the page na
 page-reference location. Because the source sentences end at the period and do **not** carry a
 page clause, the tool appends the same clause the Conformance Calculator does —
 `This occurs on the following page:` (one) / `pages:` (multiple) — then the page list, each page
-annotated `{Platform}`. If a rule has no `VPAT Text One`/`Multiple`, it emits just the page list
-(never invented wording). The `{Platform}` braces are the only RWD-specific addition; no `[S]`
+annotated `(Platform)`. If a rule has no `VPAT Text One`/`Multiple`, it emits just the page list
+(never invented wording). The `(Platform)` parentheses are the only RWD-specific addition; no `[S]`
 or other bracket formatting is produced. Pages are listed in first-seen order, none repeated,
 platforms comma-separated in one pair of braces. Platform labels live in `config.json` &rarr;
 `vpatLabels`. **Export VPAT text (TXT)** dumps every remark at once. Run

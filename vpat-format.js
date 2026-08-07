@@ -6,7 +6,7 @@
 // Hard rule: the descriptive sentence comes VERBATIM from bulleted_vpat_text.json
 // (VPAT Text One / VPAT Text Multiple). The tool never rewrites, paraphrases, or
 // re-pluralizes it. All the tool does is insert the applicable page names — each with
-// its {platform} annotation — at the page-reference location, exactly the way the
+// its (platform) annotation — at the page-reference location, exactly the way the
 // Conformance Calculator does.
 ;(function (root) {
   'use strict';
@@ -19,12 +19,12 @@
     return pg.platforms instanceof Set ? pg.platforms.has(p) : (pg.platforms || []).indexOf(p) >= 0;
   }
 
-  // "Page Name {Desktop, Responsive Web Design Tablet}" for one affected page.
+  // "Page Name (Desktop, Responsive Web Design Tablet)" for one affected page.
   function vpatPageLine(pg, platforms, vpatLabels) {
     var plats = platforms
       .filter(function (p) { return pageHasPlatform(pg, p); })
       .map(function (p) { return vpatLabel(p, vpatLabels); });
-    return pg.display + ' {' + plats.join(', ') + '}';
+    return pg.display + ' (' + plats.join(', ') + ')';
   }
 
   // The affected-pages clause: pages separated by "; ", terminated with ".".

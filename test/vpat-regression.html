@@ -63,14 +63,14 @@
 
       // One applicable page -> VPAT Text One, singular "page"
       var one = VPATFormat.vpatRemark(mk(e, [pg('Page A',['Desktop'])]), PLATFORMS, LABELS);
-      var expOne = trimEnd(e.one) + ' This occurs on the following page: Page A {Desktop}.';
+      var expOne = trimEnd(e.one) + ' This occurs on the following page: Page A (Desktop).';
       ok(one === expOne, rid+' [One] exact assembled match');
       ok(one.indexOf(trimEnd(e.one)) === 0, rid+' [One] descriptive sentence used VERBATIM (no paraphrase)');
       ok(!/\[s\]/i.test(one), rid+' [One] contains no [S] bracket');
 
       // Multiple pages -> VPAT Text Multiple, plural "pages"
       var mult = VPATFormat.vpatRemark(mk(e, [pg('Page A',['Desktop']), pg('Page B',['RWD Tablet'])]), PLATFORMS, LABELS);
-      var expMult = trimEnd(e.multiple) + ' This occurs on the following pages: Page A {Desktop}; Page B {Responsive Web Design Tablet}.';
+      var expMult = trimEnd(e.multiple) + ' This occurs on the following pages: Page A (Desktop); Page B (Responsive Web Design Tablet).';
       ok(mult === expMult, rid+' [Multiple] exact assembled match');
       ok(mult.indexOf(trimEnd(e.multiple)) === 0, rid+' [Multiple] descriptive sentence used VERBATIM (no paraphrase)');
       ok(!/\[s\]/i.test(mult), rid+' [Multiple] contains no [S] bracket');
