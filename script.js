@@ -28,10 +28,76 @@
   let PREFIX_RE = null;
   let PLATFORM_LOOKUP = {};
 
-  // Rule Id -> { one, multiple, short, cp } — the VPAT prose text, extracted from the
-  // VPAT Generator. Loaded from vpat-text.json at startup; if it can't be fetched the
-  // tool still works and simply falls back to emitting the page list on its own.
+  // Conformance Calculator data sources (the single source of truth for issue/VPAT
+  // info — no duplicate database is kept in this tool):
+  //   VPAT_LOOKUP  — from bulleted_vpat_text.json, keyed by Rule ID. Primary source of
+  //                  VPAT prose: { one, multiple, short, cp, standard, issueType, impact }.
+  //   ISSUE_DESC   — from issue-descriptions.json, keyed by id. Supporting source of
+  //                  issue descriptions / checkpoint mapping: { short, desc, cp, standards }.
+  // Both load at startup; if either can't be fetched the tool still works and falls back
+  // to emitting the page list on its own (it never invents VPAT wording).
   let VPAT_LOOKUP = {};
+  let ISSUE_DESC = {};
+
+  // bulleted_vpat_text.json is an array of VPAT-Generator rows. Index it by Rule ID,
+  // preferring the row that actually carries prose when a rule appears more than once.
+  function buildVpatLookup(rows){
+    const map = {};
+    (rows || []).forEach(r => {
+      const rid = (r['Rule ID'] || '').toString().trim().toLowerCase();
+      if (!rid) return;
+      const entry = {
+        one: r['VPAT Text One'] || null,
+        multiple: r['VPAT Text Multiple'] || null,
+        short: r['Short Text'] || r['Removed Short Text'] || null,
+        cp: r['Checkpoint'] || null,
+        standard: r['Standard'] || null,
+        issueType: r['Issue Type'] || null,
+        impact: r['Impact'] || null
+      };
+      const existing = map[rid];
+      if (!existing || (!(existing.one || existing.multiple) && (entry.one || entry.multiple))) {
+        map[rid] = entry;
+      }
+    });
+    return map;
+  }
+
+  // issue-descriptions.json is an array keyed by `id`. Keep the supporting fields.
+  function buildIssueDesc(rows){
+    const map = {};
+    (rows || []).forEach(it => {
+      const id = (it.id || '').toString().trim().toLowerCase();
+      if (!id) return;
+      const d0 = (it.data && it.data[0]) || {};
+      map[id] = {
+        short: it.shortText || null,
+        desc: it.issueDescText || null,
+        cp: d0.checkpoint || null,
+        standards: d0.standards || []
+      };
+    });
+    return map;
+  }
+
+  // Resolve a rule's entry: bulleted_vpat_text.json first (Rule ID), enriched from
+  // issue-descriptions.json for any missing supporting field. Returns null if neither
+  // source knows the rule. VPAT prose (one/multiple) only ever comes from the bulleted
+  // source — issue-descriptions never supplies prose (so wording is never invented).
+  function vpatEntry(ruleId){
+    const rid = (ruleId || '').toString().trim().toLowerCase();
+    if (!rid) return null;
+    const base = VPAT_LOOKUP[rid];
+    const desc = ISSUE_DESC[rid];
+    if (!base && !desc) return null;
+    const e = base ? Object.assign({}, base) : { one: null, multiple: null };
+    if (desc) {
+      if (!e.short) e.short = desc.short;
+      if (!e.cp) e.cp = desc.cp;
+      if (!e.description) e.description = desc.desc;
+    }
+    return e;
+  }
 
   function escapeRegex(s){
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -67,10 +133,15 @@
     .then(cfg => { if (cfg && cfg.platforms) applyConfig(cfg); })
     .catch(() => { /* keep DEFAULT_CONFIG */ });
 
-  fetch('./vpat-text.json')
+  fetch('./bulleted_vpat_text.json')
     .then(res => (res.ok ? res.json() : null))
-    .then(map => { if (map) { VPAT_LOOKUP = map; if (state.pages.length) render(); } })
+    .then(rows => { if (rows) { VPAT_LOOKUP = buildVpatLookup(rows); if (state.pages.length) render(); } })
     .catch(() => { /* keep empty VPAT_LOOKUP — page list still generated */ });
+
+  fetch('./issue-descriptions.json')
+    .then(res => (res.ok ? res.json() : null))
+    .then(rows => { if (rows) { ISSUE_DESC = buildIssueDesc(rows); if (state.pages.length) render(); } })
+    .catch(() => { /* supporting source only */ });
 
   // DOM wiring only — which upload zone maps to which element ids. The platform each
   // one defaults to when an issue has no prefix comes from CONFIG.sourceDefaults instead,
@@ -398,13 +469,20 @@
   function mergeRulesByText(rules){
     const map = new Map();
     const order = [];
+    const normText = s => (s || '').replace(/\s+/g, ' ').trim();
     rules.forEach(rg => {
-      const entry = rg.ruleId && VPAT_LOOKUP[rg.ruleId];
-      const textKey = entry
-        ? ('t\x01' + (entry.one || '') + '\x01' + (entry.multiple || ''))
+      const entry = vpatEntry(rg.ruleId);
+      // Only entries with actual prose merge by text; prose-less rules (best-practice
+      // rows exist in the source with null VPAT text) stay separate, keyed by rule, so
+      // they don't all collapse into a single empty-text bullet. The merge key is
+      // whitespace-normalized so rules whose source wording differs only by stray
+      // spaces (e.g. a trailing space) still merge; the displayed wording is untouched.
+      const hasProse = !!(entry && (entry.one || entry.multiple));
+      const textKey = hasProse
+        ? ('t\x01' + normText(entry.one) + '\x01' + normText(entry.multiple))
         : ('r\x01' + (rg.ruleId || rg.checkpoint));
       if (!map.has(textKey)) {
-        map.set(textKey, { one: entry && entry.one, multiple: entry && entry.multiple, hasProse: !!entry, pages: new Map() });
+        map.set(textKey, { one: entry && entry.one, multiple: entry && entry.multiple, hasProse: hasProse, pages: new Map() });
         order.push(textKey);
       }
       const m = map.get(textKey);
@@ -426,8 +504,10 @@
   function vpatRemark(m){
     const pageList = m.pages.map(vpatPageLine).join('; ') + '.';
     if (!m.hasProse) return pageList;
-    const prose = (m.pages.length === 1 ? m.one : m.multiple) || m.one || m.multiple;
-    return prose ? (prose + ' ' + pageList) : pageList;
+    let prose = (m.pages.length === 1 ? m.one : m.multiple) || m.one || m.multiple;
+    if (!prose) return pageList;
+    prose = prose.replace(/\s+$/, ''); // drop any trailing whitespace before the page list
+    return prose + ' ' + pageList;
   }
 
   function render(){

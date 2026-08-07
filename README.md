@@ -14,8 +14,8 @@ No backend, no build step — just static files.
 | `config.json` | Editable settings — see below. Loaded via `fetch()` at startup; if that fails (e.g. opened via `file://` with no local server), the app falls back to the same values hard-coded in `script.js` so it still works. |
 | `manifest.json` | Browser extension manifest for a Chrome/Edge/Brave popup extension. |
 | `papaparse.min.js` | Local copy of PapaParse so the extension works without remote CDN access. |
-| `vpat-text.json` | Rule Id &rarr; VPAT remark prose (`one` / `multiple` / `short` / `cp`), extracted from the VPAT Generator. Loaded via `fetch()` at startup; if it can't be loaded the tool still runs and emits just the annotated page list. |
-| _(VPAT Generator spreadsheet)_ | `vpat-text.json` is generated from the VPAT Generator's "VPAT Text One/Multiple" columns (keyed by "Rule ID"). The source spreadsheet is **not** included in this repo — it's kept locally. Not used at runtime; only needed to regenerate the JSON. |
+| `bulleted_vpat_text.json` | **Primary** VPAT data source (from the Conformance Calculator) — an array of VPAT-Generator rows. Indexed at load by `Rule ID` for `VPAT Text One` / `VPAT Text Multiple` / `Short Text` / `Checkpoint` / `Standard` / `Issue Type` / `Impact`. Loaded via `fetch()`; if it can't load, the tool still runs and emits just the annotated page list. |
+| `issue-descriptions.json` | **Supporting** data source (from the Conformance Calculator) — array keyed by `id` with `shortText` / `issueDescText` / `data[].checkpoint` / `standards`. Used only to fill in a rule's short text / checkpoint when `bulleted_vpat_text.json` lacks them; it never supplies VPAT prose. |
 
 ## VPAT text generation
 
@@ -29,16 +29,21 @@ An image does not have a text alternative … This occurs on the following page(
 ```
 
 The prose is looked up by the axe Auditor **`Rule Id`** column (the VPAT paragraph unit —
-one checkpoint code such as 1.1.1.a spans several rules with different wording). Pages are
+one checkpoint code such as 1.1.1.a spans several rules with different wording) against
+`bulleted_vpat_text.json`, falling back to `issue-descriptions.json` for supporting fields.
+The wording is used **exactly** as stored — the tool never invents or rewrites VPAT text; if
+a rule has no `VPAT Text One`/`Multiple`, it emits just the annotated page list. Pages are
 listed in the order first seen in the CSVs, no page repeated, platforms comma-separated in
 one pair of braces. The full-name platform labels live in `config.json` &rarr; `vpatLabels`.
-**Export VPAT text (TXT)** dumps every rule's remark at once. To regenerate `vpat-text.json`
-after editing the generator, re-run the extraction (Rule ID + VPAT Text One/Multiple + Short
-Text + Checkpoint columns &rarr; JSON keyed by Rule ID).
+**Export VPAT text (TXT)** dumps every rule's remark at once.
 
-Rules whose prose is **identical** are merged into one remark, pooling their pages (deduped
-case-insensitively, platforms unioned) — so two rules that both read "An image does not have
-a text alternative…" become a single bullet listing all affected pages once.
+These two Conformance Calculator files are the single source of truth — the tool keeps **no
+duplicate VPAT/issue-description database** of its own.
+
+Rules whose prose is **identical** (ignoring incidental whitespace) are merged into one
+remark, pooling their pages (deduped case-insensitively, platforms unioned) — so two rules
+that both read "An image does not have a text alternative…" become a single bullet listing
+all affected pages once.
 
 ## Closed issues
 
