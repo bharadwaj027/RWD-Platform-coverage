@@ -450,17 +450,8 @@
   }
 
   // ---------- VPAT text generation ----------
-
-  // Canonical platform order (Desktop, Tablet, Mobile) mapped to the full VPAT wording.
-  function vpatLabel(platform){
-    return (CONFIG.vpatLabels && CONFIG.vpatLabels[platform]) || platform;
-  }
-
-  // "Page Name {Desktop, Responsive Web Design Tablet}" for one affected page.
-  function vpatPageLine(pg){
-    const plats = PLATFORMS.filter(p => pg.platforms.has(p)).map(vpatLabel);
-    return pg.display + ' {' + plats.join(', ') + '}';
-  }
+  // The actual sentence assembly lives in vpat-format.js (VPATFormat), shared with the
+  // regression test so both run identical code. This file only prepares the merged data.
 
   // Merge rules that resolve to the SAME VPAT prose into one remark, pooling their
   // pages: deduped by page (case-insensitive), platforms unioned, so a page never
@@ -497,17 +488,9 @@
     });
   }
 
-  // The full paste-ready VPAT remark for a merged group: the Generator's prose (One
-  // when a single page is affected, Multiple otherwise) followed by the annotated page
-  // list. The prose already ends with "This occurs on the following page(s):" — the
-  // pages are appended verbatim. With no prose, just the page list is used.
+  // Delegate the actual VPAT sentence assembly to the shared module (see vpat-format.js).
   function vpatRemark(m){
-    const pageList = m.pages.map(vpatPageLine).join('; ') + '.';
-    if (!m.hasProse) return pageList;
-    let prose = (m.pages.length === 1 ? m.one : m.multiple) || m.one || m.multiple;
-    if (!prose) return pageList;
-    prose = prose.replace(/\s+$/, ''); // drop any trailing whitespace before the page list
-    return prose + ' ' + pageList;
+    return VPATFormat.vpatRemark(m, PLATFORMS, CONFIG.vpatLabels);
   }
 
   function render(){

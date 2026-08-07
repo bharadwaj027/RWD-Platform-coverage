@@ -11,6 +11,8 @@ No backend, no build step — just static files.
 | `index.html`  | Page structure/markup. Loads `papaparse.min.js` locally, then `style.css` and `script.js`. |
 | `style.css`   | All styling. Design tokens (colors, fonts) are CSS variables at the top of the `:root` block. |
 | `script.js`   | All app logic: CSV parsing, the Success-Criteria/Page/Platform matrix builder, search/filter/sort, CSV export. |
+| `vpat-format.js` | The VPAT sentence assembly (`VPATFormat`), kept DOM-free so both the tool and the regression test run the exact same code. It builds a remark from a rule's source prose + the page/platform list — see below. |
+| `test/vpat-regression.html` | Open in a browser to verify generated VPAT text matches `bulleted_vpat_text.json` exactly for the 4.1.2 rules (and that no `[S]` bracket is ever emitted). Shows PASS/FAIL — no build step or Node needed. |
 | `config.json` | Editable settings — see below. Loaded via `fetch()` at startup; if that fails (e.g. opened via `file://` with no local server), the app falls back to the same values hard-coded in `script.js` so it still works. |
 | `manifest.json` | Browser extension manifest for a Chrome/Edge/Brave popup extension. |
 | `papaparse.min.js` | Local copy of PapaParse so the extension works without remote CDN access. |
@@ -28,14 +30,24 @@ the platform(s) it's present on in braces using the full VPAT wording, e.g.
 An image does not have a text alternative … This occurs on the following page(s): Home {Desktop}; Checkout {Desktop, Responsive Web Design Tablet}.
 ```
 
-The prose is looked up by the axe Auditor **`Rule Id`** column (the VPAT paragraph unit —
-one checkpoint code such as 1.1.1.a spans several rules with different wording) against
-`bulleted_vpat_text.json`, falling back to `issue-descriptions.json` for supporting fields.
-The wording is used **exactly** as stored — the tool never invents or rewrites VPAT text; if
-a rule has no `VPAT Text One`/`Multiple`, it emits just the annotated page list. Pages are
-listed in the order first seen in the CSVs, no page repeated, platforms comma-separated in
-one pair of braces. The full-name platform labels live in `config.json` &rarr; `vpatLabels`.
-**Export VPAT text (TXT)** dumps every rule's remark at once.
+The prose is looked up by the axe Auditor **`Rule Id`** column — **never** by Success
+Criterion, because one checkpoint (e.g. `4.1.2.a`) contains many rules with different
+wording (`expand-collapse-state`, `state-selected-missing-incorrect`, `control-missing-state`,
+…). The lookup is Rule ID &rarr; entry in `bulleted_vpat_text.json`, with `Checkpoint` as an
+additional validation key, falling back to `issue-descriptions.json` for supporting fields.
+
+The descriptive sentence is used **exactly** as stored — the tool never rewrites, paraphrases,
+re-pluralizes, or adds/removes words. It only does two things: pick `VPAT Text One` (a single
+applicable page) or `VPAT Text Multiple` (more than one), and insert the page names at the
+page-reference location. Because the source sentences end at the period and do **not** carry a
+page clause, the tool appends the same clause the Conformance Calculator does —
+`This occurs on the following page:` (one) / `pages:` (multiple) — then the page list, each page
+annotated `{Platform}`. If a rule has no `VPAT Text One`/`Multiple`, it emits just the page list
+(never invented wording). The `{Platform}` braces are the only RWD-specific addition; no `[S]`
+or other bracket formatting is produced. Pages are listed in first-seen order, none repeated,
+platforms comma-separated in one pair of braces. Platform labels live in `config.json` &rarr;
+`vpatLabels`. **Export VPAT text (TXT)** dumps every remark at once. Run
+`test/vpat-regression.html` in a browser to confirm exact-match fidelity.
 
 These two Conformance Calculator files are the single source of truth — the tool keeps **no
 duplicate VPAT/issue-description database** of its own.

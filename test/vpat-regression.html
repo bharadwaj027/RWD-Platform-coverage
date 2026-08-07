@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>VPAT exact-match regression</title>
+<style>
+  body{ font-family:'IBM Plex Mono',monospace; margin:24px; color:#16241f; background:#f5f7f4; }
+  h1{ font-size:16px; }
+  .verdict{ font-size:15px; font-weight:700; padding:8px 12px; border-radius:8px; display:inline-block; }
+  .pass{ background:#e1f0e8; color:#1e7a5c; }
+  .fail{ background:#f5e1da; color:#9c3f2a; }
+  pre{ white-space:pre-wrap; font-size:12.5px; line-height:1.5; }
+  .fail-line{ color:#9c3f2a; font-weight:700; }
+</style>
+</head>
+<body>
+<h1>VPAT exact-match regression &mdash; 4.1.2 rules vs bulleted_vpat_text.json</h1>
+<div id="verdict"></div>
+<pre id="out"></pre>
+
+<!-- Same assembly module the tool uses, so this test exercises the real code path. -->
+<script src="../vpat-format.js"></script>
+<script>
+(function(){
+  var PLATFORMS = ['Desktop','RWD Tablet','RWD Mobile'];
+  var LABELS = { 'Desktop':'Desktop', 'RWD Tablet':'Responsive Web Design Tablet', 'RWD Mobile':'Responsive Web Design Mobile' };
+
+  // The six distinct 4.1.2 rules the spec calls out — each must keep its OWN wording.
+  var TARGETS = [
+    'expand-collapse-state',
+    'state-aria-expanded-missing-incorrect',
+    'state-selected-missing-incorrect',
+    'control-missing-state',
+    'control-incorrect-state',
+    'control-name-inaccessible'
+  ];
+
+  function buildLookup(rows){
+    var m = {};
+    rows.forEach(function(r){
+      var rid = (r['Rule ID']||'').trim().toLowerCase();
+      if(!rid) return;
+      var e = { one:r['VPAT Text One']||null, multiple:r['VPAT Text Multiple']||null, cp:r['Checkpoint']||null };
+      var ex = m[rid];
+      if(!ex || (!(ex.one||ex.multiple) && (e.one||e.multiple))) m[rid]=e;
+    });
+    return m;
+  }
+  function mk(e, pages){ return { one:e.one, multiple:e.multiple, hasProse:!!(e.one||e.multiple), pages:pages }; }
+  function pg(display, plats){ return { display:display, platforms:plats }; }
+  function trimEnd(s){ return (s||'').replace(/\s+$/,''); }
+
+  var log = [], fail = 0, checks = 0;
+  function ok(cond, msg){ checks++; if(!cond){ fail++; log.push('  [FAIL] '+msg); } }
+
+  fetch('../bulleted_vpat_text.json').then(function(r){ return r.json(); }).then(function(rows){
+    var LK = buildLookup(rows);
+
+    TARGETS.forEach(function(rid){
+      var e = LK[rid];
+      if(!e){ fail++; checks++; log.push('MISSING RULE: '+rid); return; }
+      ok((e.cp||'').indexOf('4.1.2')===0, rid+': checkpoint starts 4.1.2 (got "'+e.cp+'")');
+
+      // One applicable page -> VPAT Text One, singular "page"
+      var one = VPATFormat.vpatRemark(mk(e, [pg('Page A',['Desktop'])]), PLATFORMS, LABELS);
+      var expOne = trimEnd(e.one) + ' This occurs on the following page: Page A {Desktop}.';
+      ok(one === expOne, rid+' [One] exact assembled match');
+      ok(one.indexOf(trimEnd(e.one)) === 0, rid+' [One] descriptive sentence used VERBATIM (no paraphrase)');
+      ok(!/\[s\]/i.test(one), rid+' [One] contains no [S] bracket');
+
+      // Multiple pages -> VPAT Text Multiple, plural "pages"
+      var mult = VPATFormat.vpatRemark(mk(e, [pg('Page A',['Desktop']), pg('Page B',['RWD Tablet'])]), PLATFORMS, LABELS);
+      var expMult = trimEnd(e.multiple) + ' This occurs on the following pages: Page A {Desktop}; Page B {Responsive Web Design Tablet}.';
+      ok(mult === expMult, rid+' [Multiple] exact assembled match');
+      ok(mult.indexOf(trimEnd(e.multiple)) === 0, rid+' [Multiple] descriptive sentence used VERBATIM (no paraphrase)');
+      ok(!/\[s\]/i.test(mult), rid+' [Multiple] contains no [S] bracket');
+
+      log.push('\n'+rid+'  (cp '+e.cp+')');
+      log.push('  One      -> '+one);
+      log.push('  Multiple -> '+mult);
+    });
+
+    // Whole-file guard: no rule with prose may ever emit an [S] bracket.
+    var scanned = 0, offenders = 0;
+    Object.keys(LK).forEach(function(rid){
+      var e = LK[rid];
+      if(!(e.one||e.multiple)) return;
+      scanned++;
+      var out = VPATFormat.vpatRemark(mk(e, [pg('P',['Desktop'])]), PLATFORMS, LABELS);
+      checks++;
+      if(/\[s\]/i.test(out)){ fail++; offenders++; log.push('  [FAIL] [S] appeared for '+rid); }
+    });
+    log.push('\nGlobal [S] scan across '+scanned+' prose rules: '+(offenders? (offenders+' offender(s)') : 'clean'));
+
+    var v = document.getElementById('verdict');
+    if(fail){ v.className='verdict fail'; v.textContent='FAILED — '+fail+' of '+checks+' checks failed'; }
+    else { v.className='verdict pass'; v.textContent='PASSED — all '+checks+' checks'; }
+    document.getElementById('out').textContent = log.join('\n');
+    window.__VPAT_TEST = { fail:fail, checks:checks };
+  }).catch(function(err){
+    document.getElementById('verdict').className='verdict fail';
+    document.getElementById('verdict').textContent='ERROR loading source: '+err;
+    window.__VPAT_TEST = { fail:1, checks:0, error:String(err) };
+  });
+})();
+</script>
+</body>
+</html>
