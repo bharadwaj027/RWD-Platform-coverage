@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "RWD Coverage Ledger",
+  "description": "Upload axe Auditor CSVs for Desktop, RWD Tablet, and RWD Mobile to visualize success criteria coverage across responsive platforms.",
+  "version": "1.0.0",
+  "action": {
+    "default_title": "RWD Coverage Ledger"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["tabs"]
+}

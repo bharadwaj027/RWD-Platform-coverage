@@ -1,0 +1,12 @@
+# Office temp/lock files
+~$*
+
+# Proprietary VPAT Generator source spreadsheet — kept local only, not published.
+# vpat-text.json (the runtime lookup extracted from it) is committed; the raw
+# spreadsheet is not.
+VPAT generator.xlsx
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini

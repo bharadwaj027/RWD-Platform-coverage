@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RWD Coverage Ledger</title>
+<link rel="stylesheet" href="style.css" />
+<script src="papaparse.min.js"></script>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <div>
+      <span class="eyebrow">VPAT support</span>
+      <h1>RWD Coverage</h1>
+      <p class="sub">Upload your three axe Auditor exports (Desktop / Web, RWD Tablet, RWD Mobile) to see, by Success Criteria, which pages are affected on each responsive platform &mdash; ready to paste into a VPAT.</p>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <div class="upload-strip" id="uploadStrip">
+    <label class="dropzone" id="dz-web" data-src="web">
+      <div class="dz-head">
+        <svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="1.4"/><line x1="8" y1="20.5" x2="16" y2="20.5"/><line x1="12" y1="17" x2="12" y2="20.5"/></svg>
+        <span>
+          <span class="dz-label">Desktop / Web Audit CSV</span>
+          <span class="dz-platform">Platform: Desktop</span>
+        </span>
+      </div>
+      <p class="dz-status" id="status-web">Drop file here or click to browse</p>
+      <input type="file" accept=".csv" id="file-web" />
+    </label>
+
+    <label class="dropzone" id="dz-tablet" data-src="tablet">
+      <div class="dz-head">
+        <svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2.5" width="16" height="19" rx="2"/><line x1="12" y1="18.6" x2="12" y2="18.7"/></svg>
+        <span>
+          <span class="dz-label">RWD Tablet CSV</span>
+          <span class="dz-platform">Platform: RWD Tablet</span>
+        </span>
+      </div>
+      <p class="dz-status" id="status-tablet">Drop file here or click to browse</p>
+      <input type="file" accept=".csv" id="file-tablet" />
+    </label>
+
+    <label class="dropzone" id="dz-mobile" data-src="mobile">
+      <div class="dz-head">
+        <svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2.2"/><line x1="12" y1="18.3" x2="12" y2="18.4"/></svg>
+        <span>
+          <span class="dz-label">RWD Mobile CSV</span>
+          <span class="dz-platform">Platform: RWD Mobile</span>
+        </span>
+      </div>
+      <p class="dz-status" id="status-mobile">Drop file here or click to browse</p>
+      <input type="file" accept=".csv" id="file-mobile" />
+    </label>
+  </div>
+
+  <div class="banner" id="completenessBanner" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 9v4M12 16.5h.01M10.3 3.9 2.7 17.5A1.8 1.8 0 0 0 4.3 20h15.4a1.8 1.8 0 0 0 1.6-2.5L13.7 3.9a1.8 1.8 0 0 0-3.4 0Z"/></svg>
+    <span id="completenessText"></span>
+  </div>
+
+  <div class="stats" id="stats" hidden>
+    <div class="stat"><span class="n" id="statTotal">0</span><span class="l">Success criteria analyzed</span></div>
+    <div class="stat full"><span class="n" id="statFull">0</span><span class="l">Full RWD coverage (3/3)</span></div>
+    <div class="stat partial"><span class="n" id="statPartial">0</span><span class="l">Partial coverage (2/3)</span></div>
+    <div class="stat single"><span class="n" id="statSingle">0</span><span class="l">Single platform only</span></div>
+  </div>
+
+  <div class="toolbar" id="toolbar" hidden>
+    <div class="search-field">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.6" y2="16.6"/></svg>
+      <input type="text" id="searchInput" placeholder="Filter by SC number, checkpoint, or page&hellip;" aria-label="Filter by success criteria number, checkpoint, or page" />
+    </div>
+    <div class="filter-group" role="group" aria-label="Filter by coverage tier">
+      <button class="chip" data-tier="all" aria-pressed="true">All</button>
+      <button class="chip" data-tier="3" aria-pressed="false">Full 3/3</button>
+      <button class="chip" data-tier="2" aria-pressed="false">Partial 2/3</button>
+      <button class="chip" data-tier="1" aria-pressed="false">Single 1/3</button>
+    </div>
+    <label class="closed-toggle"><input type="checkbox" id="includeClosed" /> Include Closed Issues</label>
+    <button class="btn ghost" id="expandAllBtn">Expand all</button>
+    <button class="btn ghost" id="collapseAllBtn">Collapse all</button>
+    <button class="btn" id="exportBtn">Export SC summary (CSV)</button>
+    <button class="btn" id="exportCheckpointsBtn">Export full detail (CSV)</button>
+    <button class="btn" id="exportVpatBtn">Export VPAT text (TXT)</button>
+    <button class="btn ghost" id="resetBtn">Clear all files</button>
+  </div>
+
+  <div class="table-wrap" id="tableWrap" hidden>
+    <table id="matrixTable">
+      <thead>
+        <tr>
+          <th scope="col" class="col-expand"><span class="sr-only">Expand pages</span></th>
+          <th scope="col">
+            <button class="sortbtn" data-key="sc" aria-sort="none">Success Criteria
+              <svg viewBox="0 0 10 10" fill="currentColor"><path d="M5 0 L9 5 L1 5 Z M1 5 L9 5 L5 10 Z"/></svg>
+            </button>
+          </th>
+          <th scope="col" class="col-platform">Desktop</th>
+          <th scope="col" class="col-platform">RWD Tablet</th>
+          <th scope="col" class="col-platform">RWD Mobile</th>
+          <th scope="col" class="col-coverage">
+            <button class="sortbtn" data-key="coverage" aria-sort="none">Coverage
+              <svg viewBox="0 0 10 10" fill="currentColor"><path d="M5 0 L9 5 L1 5 Z M1 5 L9 5 L5 10 Z"/></svg>
+            </button>
+          </th>
+          <th scope="col" class="col-issues">
+            <button class="sortbtn" data-key="totalRows" aria-sort="none">Issues
+              <svg viewBox="0 0 10 10" fill="currentColor"><path d="M5 0 L9 5 L1 5 Z M1 5 L9 5 L5 10 Z"/></svg>
+            </button>
+          </th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+
+  <div class="empty-state" id="emptyState">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16v16H4z" opacity="0"/><path d="M8 3v4M16 3v4M4.5 9h15M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"/></svg>
+    <h2>No data yet</h2>
+    <p>Upload at least one axe Auditor CSV above to build the coverage. Upload all three for a complete picture.</p>
+  </div>
+
+  <p class="footnote">
+    <strong>How coverage is determined:</strong> platforms come from the "Desktop / RWD Tablet / RWD Mobile" prefix on each issue's Summary; an unprefixed issue is counted for the platform of the CSV it came from. Each row above is one Success Criteria (aggregated across all its axe Auditor checkpoints); expand it to see exactly which pages they are present on, and on which platforms. This reflects <em>where an issue is present</em>, not full test coverage &mdash; a platform showing as absent may mean it was tested and found clean, or that it wasn't covered by the uploaded CSVs. Watch for a &#9888; on a page (spelled differently across files) or a checkpoint-count badge (an SC covering more than one distinct checkpoint, which can have different platform coverage from each other). <strong>Export full detail</strong> always gives you every Success Criteria &times; Page combination, regardless of what's currently filtered on screen.
+  </p>
+
+  <div id="ariaLive" class="sr-only" role="status" aria-live="polite"></div>
+</main>
+
+<script src="script.js" defer></script>
+
+</body>
+</html>

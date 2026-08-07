@@ -1,0 +1,27 @@
+{
+  "platforms": ["Desktop", "RWD Tablet", "RWD Mobile"],
+
+  "vpatLabels": {
+    "Desktop": "Desktop",
+    "RWD Tablet": "Responsive Web Design Tablet",
+    "RWD Mobile": "Responsive Web Design Mobile"
+  },
+
+  "sourceDefaults": {
+    "web": "Desktop",
+    "tablet": "RWD Tablet",
+    "mobile": "RWD Mobile"
+  },
+
+  "columns": {
+    "page": "Test Unit",
+    "summary": "Summary",
+    "checkpoint": "Checkpoint",
+    "ruleId": "Rule Id",
+    "issueStatus": "Issue Status",
+    "successCriteria": "Success Criteria",
+    "checkpointGroup": "Checkpoint Group"
+  },
+
+  "siteWidePageName": "project wide"
+}
