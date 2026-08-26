@@ -18,15 +18,17 @@
       ruleId: 'Rule Id',
       issueStatus: 'Issue Status',
       successCriteria: 'Success Criteria',
-      checkpointGroup: 'Checkpoint Group'
+      checkpointGroup: 'Checkpoint Group',
+      unitType: 'Unit Type',
+      issueId: 'Issue ID',
+      impact: 'Impact',
+      description: 'Description'
     },
     siteWidePageName: 'project wide'
   };
 
   let CONFIG = DEFAULT_CONFIG;
   let PLATFORMS = [];
-  let PREFIX_RE = null;
-  let PLATFORM_LOOKUP = {};
 
   // Conformance Calculator data sources (the single source of truth for issue/VPAT
   // info — no duplicate database is kept in this tool):
@@ -99,31 +101,12 @@
     return e;
   }
 
-  function escapeRegex(s){
-    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-
-  // Turns ["Desktop","RWD Tablet"] into a case-insensitive alternation that also
-  // tolerates extra/odd whitespace between words (so "RWD  Tablet" still matches).
-  function buildPrefixRegex(platforms){
-    const alt = platforms
-      .map(p => p.trim().split(/\s+/).map(escapeRegex).join('\\s*'))
-      .join('|');
-    return new RegExp('^\\s*((?:' + alt + ')(?:\\s*,\\s*(?:' + alt + '))*)\\s*:\\s*', 'i');
-  }
-
-  // Maps a cleaned "desktop" / "rwd tablet" back to the canonical spelling from config.
-  function buildPlatformLookup(platforms){
-    const map = {};
-    platforms.forEach(p => { map[p.trim().replace(/\s+/g, ' ').toLowerCase()] = p; });
-    return map;
-  }
-
+  // Platform parsing (Summary prefix -> platforms) and the whole page/rule model now live
+  // in redistribute.js (RWDModel), shared with the regression test. This file keeps only
+  // presentation + the shared-unit mapping UI.
   function applyConfig(cfg){
     CONFIG = cfg;
     PLATFORMS = cfg.platforms.slice();
-    PREFIX_RE = buildPrefixRegex(PLATFORMS);
-    PLATFORM_LOOKUP = buildPlatformLookup(PLATFORMS);
   }
 
   applyConfig(DEFAULT_CONFIG); // safe to use immediately; upgraded below if config.json loads
@@ -152,10 +135,6 @@
     mobile: { inputId: 'file-mobile', statusId: 'status-mobile', dzId: 'dz-mobile' }
   };
 
-  function defaultPlatformFor(srcKey){
-    return CONFIG.sourceDefaults[srcKey];
-  }
-
   function emptyCounts(){
     const o = {};
     PLATFORMS.forEach(p => { o[p] = 0; });
@@ -166,11 +145,23 @@
     files: { web: null, tablet: null, mobile: null }, // { name, rows }
     pages: [],
     scGroups: [],
+    sharedUnits: [],            // components + project-wide pages found in the uploads
+    sharedMap: {},              // unitKey -> { mode:'all'|'pages'|'none', pages:[pageKey,...] } (persisted across recomputes)
+    realPageKeys: [],           // page universe (real pages only) offered as mapping targets
+    manualPages: [],            // hand-added zero-issue pages: [{ id, name, choice, platforms:[...] }] (persisted)
+    manualSeq: 0,               // id generator for manual pages
+    pendingManualName: null,    // name awaiting a platform choice (the "which platform?" step)
+    projectWideExplicit: {},    // pageKey -> bool: user overrides of the auto project-wide marking (sticks)
+    pwIssueMap: {},             // issueId -> { mode:'all'|'pages'|'none', pages:[pageKey,...] } (persisted)
+    pageCatalog: [],            // every candidate page (real + project-wide + manual) for the mark grid
+    projectWideKeys: [],        // currently-marked project-wide page keys
+    pwSections: [],             // project-wide issues grouped into platform sections
     sort: { key: 'sc', dir: 'asc' },
     search: '',
     tier: 'all',
     includeClosed: false, // when false, "Closed" issues are ignored everywhere
     levelCollapsed: { A: false, AA: false, Other: false }, // WCAG level sections; false = expanded
+    sectionCollapsed: { pagePresence: true, manual: true, mapping: true, projectWide: true },
     expanded: new Set() // sc-group keys with page drill-down open
   };
 
@@ -204,17 +195,6 @@
       if (x !== y) return x - y;
     }
     return 0;
-  }
-
-  function normalizeToken(t){
-    const clean = t.trim().replace(/\s+/g, ' ').toLowerCase();
-    return PLATFORM_LOOKUP[clean] || t.trim();
-  }
-
-  function parseTokens(summary, defaultPlatform){
-    const m = String(summary || '').match(PREFIX_RE);
-    if (m) return m[1].split(',').map(normalizeToken);
-    return [defaultPlatform];
   }
 
   function announce(msg){
@@ -259,123 +239,54 @@
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
-  function recompute(){
-    const pagesMap = new Map();
-    const rulesMap = new Map(); // ruleKey -> { ruleId, sc, checkpoint, pages: Map(pageKey -> {display, platforms}) }
-    const COLS = CONFIG.columns;
-
-    Object.keys(SOURCES).forEach(srcKey => {
-      const data = state.files[srcKey];
-      if (!data) return;
-      const defaultPlatform = defaultPlatformFor(srcKey);
-
-      data.rows.forEach(row => {
-        // Unless "Include Closed Issues" is on, drop Closed issues entirely — they then
-        // affect no count, page name, platform, or VPAT text. A page kept alive only by
-        // a Closed issue disappears; a page with both open and closed issues survives on
-        // its open issue alone. This single filter drives all the closed-issue rules.
-        if (!state.includeClosed) {
-          const status = (row[COLS.issueStatus] || '').toString().trim().toLowerCase();
-          if (status === 'closed') return;
-        }
-
-        const pageRaw = (row[COLS.page] || '').toString().trim();
-        if (!pageRaw) return;
-        const key = pageRaw.toLowerCase();
-
-        if (!pagesMap.has(key)) {
-          pagesMap.set(key, {
-            display: pageRaw,
-            variants: new Set(),
-            platforms: new Set(),
-            counts: emptyCounts(),
-            totalRows: 0,
-            checkpoints: new Map() // checkpointKey -> { label, sc, group, platforms, counts, totalRows }
-          });
-        }
-        const p = pagesMap.get(key);
-        p.variants.add(pageRaw);
-        p.totalRows += 1;
-
-        const tokens = parseTokens(row[COLS.summary], defaultPlatform);
-        tokens.forEach(t => {
-          if (PLATFORMS.includes(t)) {
-            p.platforms.add(t);
-            p.counts[t] += 1;
-          }
-        });
-
-        const cpLabel = (row[COLS.checkpoint] || row[COLS.successCriteria] || 'Unspecified checkpoint').toString().trim();
-        const cpKey = cpLabel.toLowerCase();
-        if (!p.checkpoints.has(cpKey)) {
-          p.checkpoints.set(cpKey, {
-            label: cpLabel,
-            sc: (row[COLS.successCriteria] || '').toString().trim(),
-            group: (row[COLS.checkpointGroup] || '').toString().trim(),
-            platforms: new Set(),
-            counts: emptyCounts(),
-            totalRows: 0
-          });
-        }
-        const cp = p.checkpoints.get(cpKey);
-        cp.totalRows += 1;
-        tokens.forEach(t => {
-          if (PLATFORMS.includes(t)) {
-            cp.platforms.add(t);
-            cp.counts[t] += 1;
-          }
-        });
-
-        // Rule-level accumulation for VPAT prose. The VPAT Generator keys its remark
-        // text by Rule Id, and one checkpoint code (e.g. 1.1.1.a) spans several rules
-        // with different wording — so the VPAT paragraph unit is the rule, not the
-        // axe "Checkpoint" string. Fall back to the checkpoint key when Rule Id absent.
-        const ruleId = (row[COLS.ruleId] || '').toString().trim();
-        const ruleKey = (ruleId ? 'rid:' + ruleId.toLowerCase() : 'cp:' + cpKey);
-        if (!rulesMap.has(ruleKey)) {
-          rulesMap.set(ruleKey, {
-            ruleId: ruleId,
-            sc: (row[COLS.successCriteria] || '').toString().trim(),
-            checkpoint: cpLabel,
-            pages: new Map()
-          });
-        }
-        const rg = rulesMap.get(ruleKey);
-        if (!rg.pages.has(key)) rg.pages.set(key, { display: pageRaw, platforms: new Set() });
-        const rgp = rg.pages.get(key);
-        tokens.forEach(t => { if (PLATFORMS.includes(t)) rgp.platforms.add(t); });
-      });
+  // Rebuild the whole model from the raw rows via the shared RWDModel (redistribute.js),
+  // then reconcile the persisted mapping and refresh the mapping UI + results table.
+  // `structural` = true when the set of shared units / pages may have changed (upload,
+  // reset, Include-Closed toggle) so the mapping UI is re-rendered; a plain mapping edit
+  // passes false so the user's in-progress checkboxes/radios are left untouched.
+  function recompute(structural){
+    const model = RWDModel.build({
+      files: state.files,
+      config: CONFIG,
+      includeClosed: state.includeClosed,
+      sharedMap: state.sharedMap,
+      manualPages: state.manualPages.map(e => ({ name: e.name, platforms: e.platforms })),
+      pwExplicit: state.projectWideExplicit,
+      pwIssueMap: state.pwIssueMap
     });
 
-    state.pages = Array.from(pagesMap.entries()).map(([key, p]) => ({
-      key: key,
-      display: p.display,
-      variants: Array.from(p.variants),
-      hasVariantMismatch: p.variants.size > 1,
-      isSiteWide: p.display.toLowerCase() === CONFIG.siteWidePageName,
-      platforms: p.platforms,
-      counts: p.counts,
-      coverage: p.platforms.size,
-      totalRows: p.totalRows,
-      checkpoints: Array.from(p.checkpoints.values())
-        .map(cp => ({ ...cp, coverage: cp.platforms.size }))
-        .sort((a, b) => compareSC(a.sc, b.sc) || a.label.localeCompare(b.label))
-    }));
+    state.pages = model.pages;
+    state.sharedUnits = model.sharedUnits;
+    state.realPageKeys = model.realPageKeys;
+    state.pageCatalog = model.pageCatalog;
+    state.projectWideKeys = model.projectWideKeys;
+    state.pwSections = model.pwSections;
+
+    // Drop mapping entries for units that no longer exist; default any newly seen unit to
+    // "not mapped" (mirrors the Conformance Calculator — nothing is redistributed until
+    // you choose where it goes). Also prune page keys that are no longer in scope.
+    const liveUnitKeys = new Set(state.sharedUnits.map(u => u.key));
+    Object.keys(state.sharedMap).forEach(k => { if (!liveUnitKeys.has(k)) delete state.sharedMap[k]; });
+    const livePageKeys = new Set(state.realPageKeys);
+    state.sharedUnits.forEach(u => {
+      if (!state.sharedMap[u.key]) state.sharedMap[u.key] = { mode: 'none', pages: [] };
+      const sel = state.sharedMap[u.key];
+      if (sel.pages && sel.pages.length) sel.pages = sel.pages.filter(pk => livePageKeys.has(pk));
+    });
+
+    // Prune project-wide state that no longer applies (pages/issues gone from the uploads).
+    const liveCatalogKeys = new Set(state.pageCatalog.map(c => c.key));
+    Object.keys(state.projectWideExplicit).forEach(k => { if (!liveCatalogKeys.has(k)) delete state.projectWideExplicit[k]; });
+    const liveIssueIds = new Set();
+    state.pwSections.forEach(s => s.issues.forEach(i => liveIssueIds.add(i.id)));
+    Object.keys(state.pwIssueMap).forEach(id => { if (!liveIssueIds.has(id)) delete state.pwIssueMap[id]; });
 
     state.scGroups = buildScGroups(state.pages);
 
-    // Rule-level VPAT groups (one paste-ready remark per rule), sorted by SC then
-    // checkpoint, and indexed by the same key scGroups use (sc || checkpoint string)
-    // so each SC panel can show the VPAT text for every rule it covers.
-    state.ruleGroups = Array.from(rulesMap.values())
-      .map(rg => ({
-        ruleId: rg.ruleId,
-        sc: rg.sc,
-        checkpoint: rg.checkpoint,
-        pages: Array.from(rg.pages, ([key, v]) => ({ key: key, display: v.display, platforms: v.platforms }))
-      }))
-      .sort((a, b) => compareSC(a.sc, b.sc) || a.checkpoint.localeCompare(b.checkpoint));
-
+    // Rule-level VPAT groups (one paste-ready remark per rule), indexed by the same key
+    // scGroups use (sc || checkpoint string) so each SC panel can show the VPAT text for
+    // every rule it covers.
+    state.ruleGroups = model.ruleGroups;
     state.rulesBySc = new Map();
     state.ruleGroups.forEach(rg => {
       const k = rg.sc || rg.checkpoint;
@@ -383,6 +294,7 @@
       state.rulesBySc.get(k).push(rg);
     });
 
+    if (structural !== false) renderMapping();
     render();
   }
 
@@ -419,15 +331,18 @@
             variants: page.variants,
             hasVariantMismatch: page.hasVariantMismatch,
             isSiteWide: page.isSiteWide,
+            isManual: page.isManual,
             platforms: new Set(),
             counts: emptyCounts(),
             totalRows: 0,
-            checkpointLabels: new Set()
+            checkpointLabels: new Set(),
+            sources: new Set() // shared units this SC's coverage on this page came from
           });
         }
         const gp = g.pages.get(page.key);
         gp.checkpointLabels.add(cp.label);
         gp.totalRows += cp.totalRows;
+        (cp.sources || []).forEach(s => gp.sources.add(s));
         PLATFORMS.forEach(pl => {
           if (cp.platforms.has(pl)) { gp.platforms.add(pl); gp.counts[pl] += cp.counts[pl]; }
         });
@@ -444,7 +359,7 @@
       coverage: g.platforms.size,
       totalRows: g.totalRows,
       pages: Array.from(g.pages.values())
-        .map(p => ({ ...p, coverage: p.platforms.size, checkpointLabels: Array.from(p.checkpointLabels).sort() }))
+        .map(p => ({ ...p, coverage: p.platforms.size, checkpointLabels: Array.from(p.checkpointLabels).sort(), sources: Array.from(p.sources).sort() }))
         .sort((a, b) => a.display.localeCompare(b.display))
     })).sort((a, b) => compareSC(a.sc, b.sc));
   }
@@ -493,6 +408,273 @@
     return VPATFormat.vpatRemark(m, PLATFORMS, CONFIG.vpatLabels);
   }
 
+  // ---------- Shared-unit mapping UI (Section: components + project-wide pages) ----------
+  const UNIT_BADGE = { component: 'Component', projectwide: 'Project-wide' };
+
+  function unmappedCount(){
+    return state.sharedUnits.filter(u => (state.sharedMap[u.key] || {}).mode !== 'all' &&
+      !(((state.sharedMap[u.key] || {}).pages || []).length)).length;
+  }
+
+  function renderMapping(){
+    const wrap = document.getElementById('mappingWrap');
+    const list = document.getElementById('mappingList');
+    if (!state.sharedUnits.length) {
+      wrap.hidden = true;
+      list.innerHTML = '';
+      updateUnmappedBanner();
+      return;
+    }
+    wrap.hidden = false;
+
+    const realPages = state.pages.map(p => ({ key: p.key, display: p.display }))
+      .sort((a, b) => a.display.localeCompare(b.display));
+
+    list.innerHTML = state.sharedUnits.map(u => {
+      const sel = state.sharedMap[u.key] || { mode: 'none', pages: [] };
+      const selPages = new Set(sel.pages || []);
+      const plats = u.platforms.length ? u.platforms.join(', ') : 'no platform detected';
+      const scs = u.scList.length ? ('SC ' + u.scList.join(', ')) : 'no SC';
+      const checks = realPages.map(pg =>
+        '<label class="map-page' + (selPages.has(pg.key) ? ' on' : '') + '">' +
+          '<input type="checkbox" class="map-page-cb" data-unit="' + escapeHtml(u.key) + '" data-page="' + escapeHtml(pg.key) + '"' +
+          (selPages.has(pg.key) ? ' checked' : '') + (sel.mode === 'pages' ? '' : ' disabled') + ' /> ' +
+          escapeHtml(pg.display) +
+        '</label>'
+      ).join('') || '<p class="map-empty">No real pages in scope yet — upload a CSV that contains page-type Test Units.</p>';
+
+      return '<div class="mapping-unit" data-unit="' + escapeHtml(u.key) + '">' +
+        '<div class="mapping-unit-head">' +
+          '<span class="unit-badge ' + u.type + '">' + UNIT_BADGE[u.type] + '</span>' +
+          '<span class="unit-name">' + escapeHtml(u.display) + '</span>' +
+          '<span class="unit-meta">' + escapeHtml(plats) + '</span>' +
+          '<span class="unit-meta soft">' + escapeHtml(scs) + '</span>' +
+          '<span class="unit-meta soft">' + u.totalRows + ' issue' + (u.totalRows === 1 ? '' : 's') + '</span>' +
+        '</div>' +
+        '<div class="mapping-unit-controls" role="radiogroup" aria-label="Where does ' + escapeHtml(u.display) + ' apply?">' +
+          radioHtml(u.key, 'all', 'All pages', sel.mode === 'all') +
+          radioHtml(u.key, 'pages', 'Selected pages', sel.mode === 'pages') +
+          radioHtml(u.key, 'none', 'Not mapped', sel.mode !== 'all' && sel.mode !== 'pages') +
+        '</div>' +
+        '<div class="mapping-unit-pages"' + (sel.mode === 'pages' ? '' : ' hidden') + '>' + checks + '</div>' +
+      '</div>';
+    }).join('');
+
+    updateUnmappedBanner();
+  }
+
+  function radioHtml(unitKey, value, label, checked){
+    return '<label class="map-mode"><input type="radio" name="mode-' + escapeHtml(unitKey) + '" class="map-mode-radio" ' +
+      'data-unit="' + escapeHtml(unitKey) + '" value="' + value + '"' + (checked ? ' checked' : '') + ' /> ' + label + '</label>';
+  }
+
+  function updateUnmappedBanner(){
+    const el = document.getElementById('mappingUnmapped');
+    if (!el) return;
+    const n = state.sharedUnits.length ? unmappedCount() : 0;
+    if (!n) { el.hidden = true; el.textContent = ''; return; }
+    el.hidden = false;
+    el.textContent = n + ' shared unit' + (n === 1 ? '' : 's') + ' not yet mapped — their issues are excluded from coverage below until you map them (or use “Map all → All pages”).';
+  }
+
+  // ---------- Add pages manually (zero-issue pages join the page universe) ----------
+  function platformLabel(choice){ return choice === 'all' ? 'All 3 platforms' : choice; }
+  function platformsForChoice(choice){ return choice === 'all' ? PLATFORMS.slice() : [choice]; }
+
+  // Platforms a page is already present on (from CSV presence + earlier manual adds),
+  // read from the last-computed model so duplicate checks see the real universe.
+  function presenceForPageKey(key){
+    const p = state.pages.find(pg => pg.key === key);
+    return new Set(p && p.presence ? p.presence : []);
+  }
+
+  function manualMsg(text){
+    const el = document.getElementById('manualMsg');
+    if (!text){ el.hidden = true; el.textContent = ''; return; }
+    el.hidden = false; el.textContent = text;
+  }
+
+  function showChooser(show){
+    document.getElementById('manualChooser').hidden = !show;
+    if (!show) state.pendingManualName = null;
+  }
+
+  // Step 1: validate the name, then ASK for the platform (don't add yet).
+  function beginAddPage(){
+    const input = document.getElementById('manualPageName');
+    const name = (input.value || '').trim();
+    manualMsg('');
+    if (!name){ manualMsg('Please enter a page name.'); showChooser(false); input.focus(); return; }
+    state.pendingManualName = name;
+    showChooser(true);
+    const first = document.querySelector('#manualChooser .chooser-opt');
+    if (first) first.focus();
+  }
+
+  // Step 2: a platform was chosen — validate for duplicates, then add.
+  function commitAddPage(choice){
+    const name = state.pendingManualName;
+    if (!name){ showChooser(false); return; }
+    const key = name.toLowerCase();
+    const chosen = platformsForChoice(choice);
+    const present = presenceForPageKey(key);
+    const isNew = chosen.filter(p => !present.has(p));
+    if (!isNew.length){
+      manualMsg('“' + name + '” is already present on ' + (choice === 'all' ? 'all 3 platforms' : choice) + '. Nothing added.');
+      return;
+    }
+    state.manualPages.push({ id: ++state.manualSeq, name: name, choice: choice, platforms: chosen });
+    document.getElementById('manualPageName').value = '';
+    showChooser(false);
+    manualMsg('');
+    recompute(); // structural: the new page joins the universe + every mapping list
+    announce('Added page ' + name + ' for ' + platformLabel(choice) + '.');
+  }
+
+  function removeManualPage(id){
+    const idx = state.manualPages.findIndex(e => e.id === id);
+    if (idx < 0) return;
+    const removed = state.manualPages.splice(idx, 1)[0];
+    recompute();
+    announce('Removed page ' + removed.name + '.');
+  }
+
+  function renderManualPages(){
+    document.getElementById('manualCount').textContent = state.manualPages.length + ' added';
+    const list = document.getElementById('manualList');
+    list.innerHTML = state.manualPages.map(e =>
+      '<div class="manual-row">' +
+        '<span class="manual-row-name">' + escapeHtml(e.name) + '</span>' +
+        '<span class="manual-row-plat">' + escapeHtml(platformLabel(e.choice)) + '</span>' +
+        '<button class="btn ghost manual-remove" type="button" data-id="' + e.id + '" aria-label="Remove ' + escapeHtml(e.name) + ' (' + escapeHtml(platformLabel(e.choice)) + ')">Remove</button>' +
+      '</div>'
+    ).join('');
+  }
+
+  function renderPagePresence(){
+    const wrap = document.getElementById('pagePresenceWrap');
+    const pages = state.pageCatalog || [];
+    wrap.hidden = !pages.length;
+    document.getElementById('pagePresenceCount').textContent = pages.length + ' page' + (pages.length === 1 ? '' : 's');
+    document.getElementById('pagePresenceList').innerHTML = pages.map(page =>
+      '<div class="page-presence-row">' +
+        '<span class="page-presence-name">' + escapeHtml(page.display) + '</span>' +
+        '<span class="page-presence-platforms">' + escapeHtml(page.presence.length ? page.presence.join(', ') : 'No platform presence recorded') + '</span>' +
+      '</div>'
+    ).join('');
+  }
+
+  function renderSectionToggles(){
+    const sections = {
+      pagePresence: 'pagePresenceBody',
+      manual: 'manualBody',
+      mapping: 'mappingBody',
+      projectWide: 'projectWideBody'
+    };
+    Object.entries(sections).forEach(([key, bodyId]) => {
+      const collapsed = !!state.sectionCollapsed[key];
+      const body = document.getElementById(bodyId);
+      const button = document.querySelector('.section-toggle[data-section="' + key + '"]');
+      if (body) body.hidden = collapsed;
+      if (button){
+        const heading = button.closest('section').querySelector('h2').textContent;
+        button.setAttribute('aria-expanded', String(!collapsed));
+        button.setAttribute('aria-label', (collapsed ? 'Expand ' : 'Collapse ') + heading);
+        button.setAttribute('title', collapsed ? 'Expand section' : 'Collapse section');
+      }
+    });
+  }
+
+  // ---------- 2b. Project-wide / app-wide pages ----------
+  function sevClass(impact){
+    const s = (impact || '').toLowerCase();
+    if (/blocker|critical/.test(s)) return 'sev-critical';
+    if (/serious|high/.test(s)) return 'sev-serious';
+    if (/moderate|medium/.test(s)) return 'sev-moderate';
+    if (/minor|low/.test(s)) return 'sev-minor';
+    return 'sev-none';
+  }
+
+  // Current mapped page keys for an issue, from the last-computed model (so an "All pages"
+  // issue expands to the full applicable list before a single page is unticked).
+  function currentIssueSelection(id){
+    for (const sec of state.pwSections){
+      const iss = sec.issues.find(i => i.id === id);
+      if (iss) return new Set(iss.mappedPageKeys);
+    }
+    return new Set();
+  }
+  function issueApplicablePages(id){
+    for (const sec of state.pwSections){
+      if (sec.issues.some(i => i.id === id)) return sec.applicablePages;
+    }
+    return [];
+  }
+
+  function renderPwIssue(sec, iss){
+    const mapped = new Set(iss.mappedPageKeys);
+    const on = k => (iss.mode === 'all' || mapped.has(k));
+    const checks = sec.applicablePages.length
+      ? sec.applicablePages.map(pg =>
+          '<label class="pw-page' + (on(pg.key) ? ' on' : '') + '">' +
+            '<input type="checkbox" class="pw-page-cb" data-issue="' + escapeHtml(iss.id) + '" data-page="' + escapeHtml(pg.key) + '"' + (on(pg.key) ? ' checked' : '') + ' /> ' +
+            escapeHtml(pg.display) +
+          '</label>'
+        ).join('')
+      : '<p class="pw-empty">No applicable pages for this platform yet — add one under &ldquo;Add pages manually&rdquo;.</p>';
+    return '<div class="pw-issue" data-issue="' + escapeHtml(iss.id) + '">' +
+      '<div class="pw-issue-head">' +
+        '<span class="pw-issue-id">' + escapeHtml(iss.id) + '</span>' +
+        (iss.impact ? '<span class="pw-sev ' + sevClass(iss.impact) + '">' + escapeHtml(iss.impact) + '</span>' : '') +
+        (iss.sc ? '<span class="pw-sc">' + escapeHtml(iss.sc) + '</span>' : '') +
+        (iss.platforms.length ? '<span class="pw-issue-plats">' + escapeHtml(iss.platforms.join(', ')) + '</span>' : '') +
+        '<span class="pw-issue-count">' + iss.mappedCount + ' / ' + iss.applicableCount + ' pages</span>' +
+      '</div>' +
+      (iss.desc ? '<p class="pw-issue-desc">' + escapeHtml(iss.desc) + '</p>' : '') +
+      '<div class="pw-issue-controls">' +
+        '<button class="btn ghost pw-all" type="button" data-issue="' + escapeHtml(iss.id) + '">All pages (' + iss.applicableCount + ')</button>' +
+        '<button class="btn ghost pw-clear" type="button" data-issue="' + escapeHtml(iss.id) + '">Clear</button>' +
+      '</div>' +
+      '<div class="pw-issue-filter">' +
+        '<textarea class="pw-filter" data-issue="' + escapeHtml(iss.id) + '" placeholder="Filter, or paste one page per line to select…" rows="2" aria-label="Filter or paste pages for issue ' + escapeHtml(iss.id) + '"></textarea>' +
+        '<button class="btn pw-selectmatches" type="button" data-issue="' + escapeHtml(iss.id) + '">Select matches</button>' +
+      '</div>' +
+      '<div class="pw-issue-pages">' + checks + '</div>' +
+    '</div>';
+  }
+
+  function renderPwSection(sec){
+    return '<div class="pw-section">' +
+      '<div class="pw-section-head">' +
+        '<span class="pw-section-title">Project Wide &mdash; ' + escapeHtml(sec.label) + '</span>' +
+        '<span class="pw-section-meta">project-wide &middot; ' + sec.issueCount + ' issue' + (sec.issueCount === 1 ? '' : 's') + ' &middot; ' + sec.unmappedCount + ' unmapped</span>' +
+      '</div>' +
+      sec.issues.map(iss => renderPwIssue(sec, iss)).join('') +
+    '</div>';
+  }
+
+  function renderProjectWide(){
+    const wrap = document.getElementById('pwWrap');
+    const cat = state.pageCatalog || [];
+    if (!cat.length){ wrap.hidden = true; return; }
+    wrap.hidden = false;
+
+    document.getElementById('pwMarkCount').textContent =
+      state.projectWideKeys.length + ' selected · removed from page count';
+    document.getElementById('pwMarkGrid').innerHTML = cat.map(c =>
+      '<label class="pw-mark-item' + (c.selected ? ' on' : '') + '">' +
+        '<input type="checkbox" class="pw-mark-cb" data-key="' + escapeHtml(c.key) + '"' + (c.selected ? ' checked' : '') + ' /> ' +
+        escapeHtml(c.display) +
+        (c.auto ? '<span class="pw-auto" title="Auto-detected from the page name">auto</span>' : '') +
+      '</label>'
+    ).join('');
+
+    const secWrap = document.getElementById('pwSections');
+    secWrap.innerHTML = state.pwSections.length
+      ? state.pwSections.map(renderPwSection).join('')
+      : '<p class="pw-empty">No pages are marked project-wide. Tick a page above to map its issues onto the real pages where they reproduce.</p>';
+  }
+
   function render(){
     const loadedCount = Object.values(state.files).filter(Boolean).length;
     const hasAny = loadedCount > 0;
@@ -501,6 +683,12 @@
     document.getElementById('stats').hidden = !hasAny;
     document.getElementById('toolbar').hidden = !hasAny;
     document.getElementById('tableWrap').hidden = !hasAny;
+    document.getElementById('manualWrap').hidden = !hasAny;
+    renderPagePresence();
+    renderSectionToggles();
+    if (hasAny) renderManualPages(); else { showChooser(false); manualMsg(''); }
+    if (hasAny) renderProjectWide(); else document.getElementById('pwWrap').hidden = true;
+    if (!hasAny) document.getElementById('mappingWrap').hidden = true;
 
     const banner = document.getElementById('completenessBanner');
     if (hasAny && loadedCount < 3) {
@@ -598,6 +786,8 @@
     const body = pgs.map(p => {
       const nameCell = escapeHtml(p.display) +
         (p.isSiteWide ? '<span class="page-tag">Site-wide</span>' : '') +
+        (p.isManual ? '<span class="page-tag manual">Added</span>' : '') +
+        ((p.sources && p.sources.length) ? '<span class="via-flag" title="Coverage on this page redistributed from shared unit(s): ' + escapeHtml(p.sources.join(' / ')) + '">via ' + escapeHtml(p.sources.join(', ')) + '</span>' : '') +
         (p.hasVariantMismatch ? '<span class="variant-flag" title="Appears with different spelling/casing across files: ' + escapeHtml(p.variants.join(' / ')) + '">&#9888;</span>' : '') +
         (p.checkpointLabels.length > 1 ? '<span class="cp-count-flag" title="Via ' + p.checkpointLabels.length + ' checkpoints: ' + escapeHtml(p.checkpointLabels.join(' / ')) + '">' + p.checkpointLabels.length + ' checkpoints</span>' : '');
       return '<tr>' +
@@ -744,7 +934,7 @@
   function exportCheckpointsCsv(){
     // Full, unfiltered detail — one row per (Success Criteria, Page) combo regardless of current search/filter,
     // so nothing is lost even when the on-screen view is narrowed down.
-    const header = ['Success Criteria', 'Checkpoint Group', 'Checkpoint', 'Page', 'Site-wide', 'Desktop', 'Desktop Issues', 'RWD Tablet', 'RWD Tablet Issues', 'RWD Mobile', 'RWD Mobile Issues', 'Coverage', 'Total Issues'];
+    const header = ['Success Criteria', 'Checkpoint Group', 'Checkpoint', 'Page', 'Site-wide', 'Redistributed From', 'Desktop', 'Desktop Issues', 'RWD Tablet', 'RWD Tablet Issues', 'RWD Mobile', 'RWD Mobile Issues', 'Coverage', 'Total Issues'];
     const lines = [header.join(',')];
     let count = 0;
     state.pages.forEach(page => {
@@ -756,6 +946,7 @@
           cp.label,
           page.display,
           page.isSiteWide ? 'Yes' : 'No',
+          (cp.sources && cp.sources.length) ? cp.sources.join(' | ') : '',
           cp.platforms.has('Desktop') ? 'Yes' : 'No',
           cp.counts['Desktop'],
           cp.platforms.has('RWD Tablet') ? 'Yes' : 'No',
@@ -898,6 +1089,130 @@
   document.getElementById('exportCheckpointsBtn').addEventListener('click', exportCheckpointsCsv);
   document.getElementById('exportVpatBtn').addEventListener('click', exportVpatText);
 
+  // Shared-unit mapping. Radio = mode; checkboxes = which pages when mode is "Selected
+  // pages". A mapping edit re-runs the model (recompute) but NOT the mapping UI itself
+  // (structural=false), so in-progress radios/checkboxes keep their focus and state.
+  const mappingList = document.getElementById('mappingList');
+  mappingList.addEventListener('change', e => {
+    const radio = e.target.closest('.map-mode-radio');
+    if (radio) {
+      const unit = radio.getAttribute('data-unit');
+      const mode = radio.value;
+      const sel = state.sharedMap[unit] || (state.sharedMap[unit] = { mode: 'none', pages: [] });
+      sel.mode = mode;
+      // Show/hide this unit's page checkboxes and enable/disable them in place.
+      const unitEl = radio.closest('.mapping-unit');
+      const pagesEl = unitEl && unitEl.querySelector('.mapping-unit-pages');
+      if (pagesEl) {
+        pagesEl.hidden = mode !== 'pages';
+        pagesEl.querySelectorAll('.map-page-cb').forEach(cb => { cb.disabled = mode !== 'pages'; });
+      }
+      recompute(false);
+      announce(radio.closest('.mapping-unit').querySelector('.unit-name').textContent + ' mapping: ' + radio.parentNode.textContent.trim() + '.');
+      return;
+    }
+    const cb = e.target.closest('.map-page-cb');
+    if (cb) {
+      const unit = cb.getAttribute('data-unit');
+      const page = cb.getAttribute('data-page');
+      const sel = state.sharedMap[unit] || (state.sharedMap[unit] = { mode: 'pages', pages: [] });
+      const set = new Set(sel.pages || []);
+      if (cb.checked) set.add(page); else set.delete(page);
+      sel.pages = Array.from(set);
+      cb.closest('.map-page').classList.toggle('on', cb.checked);
+      recompute(false);
+      return;
+    }
+  });
+
+  // Add pages manually
+  document.getElementById('addPageBtn').addEventListener('click', beginAddPage);
+  document.getElementById('manualPageName').addEventListener('keydown', e => {
+    if (e.key === 'Enter'){ e.preventDefault(); beginAddPage(); }
+  });
+  document.getElementById('chooserCancel').addEventListener('click', () => { showChooser(false); manualMsg(''); });
+  document.querySelectorAll('#manualChooser .chooser-opt').forEach(btn => {
+    btn.addEventListener('click', () => commitAddPage(btn.getAttribute('data-choice')));
+  });
+  document.getElementById('manualList').addEventListener('click', e => {
+    const rm = e.target.closest('.manual-remove');
+    if (rm) removeManualPage(parseInt(rm.getAttribute('data-id'), 10));
+  });
+
+  // Project-wide 2b: mark grid + per-issue mapping.
+  const pwWrap = document.getElementById('pwWrap');
+  pwWrap.addEventListener('change', e => {
+    const markCb = e.target.closest('.pw-mark-cb');
+    if (markCb){
+      state.projectWideExplicit[markCb.getAttribute('data-key')] = markCb.checked;
+      recompute(true);
+      return;
+    }
+    const pageCb = e.target.closest('.pw-page-cb');
+    if (pageCb){
+      const id = pageCb.getAttribute('data-issue');
+      const key = pageCb.getAttribute('data-page');
+      const sel = currentIssueSelection(id);
+      if (pageCb.checked) sel.add(key); else sel.delete(key);
+      state.pwIssueMap[id] = { mode: 'pages', pages: Array.from(sel) };
+      recompute(true);
+      return;
+    }
+  });
+  pwWrap.addEventListener('click', e => {
+    const allBtn = e.target.closest('.pw-all');
+    if (allBtn){
+      const id = allBtn.getAttribute('data-issue');
+      state.pwIssueMap[id] = { mode: 'all', pages: [] };
+      recompute(true);
+      announce('Issue ' + id + ' mapped to all applicable pages.');
+      return;
+    }
+    const clrBtn = e.target.closest('.pw-clear');
+    if (clrBtn){
+      const id = clrBtn.getAttribute('data-issue');
+      state.pwIssueMap[id] = { mode: 'none', pages: [] };
+      recompute(true);
+      announce('Issue ' + id + ' mapping cleared.');
+      return;
+    }
+    const smBtn = e.target.closest('.pw-selectmatches');
+    if (smBtn){
+      const id = smBtn.getAttribute('data-issue');
+      const block = smBtn.closest('.pw-issue');
+      const ta = block && block.querySelector('.pw-filter');
+      const queries = ((ta && ta.value) || '').split(/[\n,]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+      if (!queries.length) return;
+      const apps = issueApplicablePages(id);
+      const sel = currentIssueSelection(id);
+      let n = 0;
+      apps.forEach(pg => {
+        const d = pg.display.toLowerCase();
+        if (queries.some(q => d === q || d.includes(q))){ if (!sel.has(pg.key)){ sel.add(pg.key); n++; } }
+      });
+      state.pwIssueMap[id] = { mode: 'pages', pages: Array.from(sel) };
+      recompute(true);
+      announce(n + ' page' + (n === 1 ? '' : 's') + ' selected for issue ' + id + '.');
+      return;
+    }
+  });
+
+  document.getElementById('mapAllBtn').addEventListener('click', () => {
+    if (!state.sharedUnits.length) return;
+    state.sharedUnits.forEach(u => { state.sharedMap[u.key] = { mode: 'all', pages: [] }; });
+    recompute(true); // re-render the mapping UI so every radio reflects "All pages"
+    announce('All shared units mapped to All pages.');
+  });
+
+  document.querySelectorAll('.section-toggle').forEach(button => {
+    button.addEventListener('click', () => {
+      const key = button.getAttribute('data-section');
+      state.sectionCollapsed[key] = !state.sectionCollapsed[key];
+      renderSectionToggles();
+      announce((state.sectionCollapsed[key] ? 'Collapsed ' : 'Expanded ') + key.replace(/([A-Z])/g, ' $1').toLowerCase() + ' section.');
+    });
+  });
+
   document.getElementById('tableBody').addEventListener('click', e => {
     const copyBtn = e.target.closest('.vpat-copy');
     if (copyBtn) {
@@ -936,6 +1251,7 @@
 
   document.getElementById('collapseAllBtn').addEventListener('click', () => {
     state.expanded.clear();
+    state.sectionCollapsed = { pagePresence: true, manual: true, mapping: true, projectWide: true };
     renderTable();
     announce('All success criteria collapsed.');
   });
@@ -944,6 +1260,21 @@
     state.files = { web: null, tablet: null, mobile: null };
     state.pages = [];
     state.scGroups = [];
+    state.sharedUnits = [];
+    state.sharedMap = {};
+    state.realPageKeys = [];
+    state.manualPages = [];
+    state.manualSeq = 0;
+    state.pendingManualName = null;
+    state.projectWideExplicit = {};
+    state.pwIssueMap = {};
+    state.pageCatalog = [];
+    state.projectWideKeys = [];
+    state.pwSections = [];
+    document.getElementById('manualPageName').value = '';
+    showChooser(false);
+    manualMsg('');
+    document.getElementById('pwWrap').hidden = true;
     state.expanded.clear();
     state.includeClosed = false;
     state.levelCollapsed = { A: false, AA: false, Other: false };
@@ -956,6 +1287,7 @@
       statusEl.className = 'dz-status';
       statusEl.textContent = 'Drop file here or click to browse';
     });
+    renderMapping();
     render();
     announce('All files cleared.');
   });

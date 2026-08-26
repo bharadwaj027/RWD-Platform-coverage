@@ -20,7 +20,11 @@
     "ruleId": "Rule Id",
     "issueStatus": "Issue Status",
     "successCriteria": "Success Criteria",
-    "checkpointGroup": "Checkpoint Group"
+    "checkpointGroup": "Checkpoint Group",
+    "unitType": "Unit Type",
+    "issueId": "Issue ID",
+    "impact": "Impact",
+    "description": "Description"
   },
 
   "siteWidePageName": "project wide"
