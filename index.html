@@ -71,6 +71,78 @@
     <div class="stat single"><span class="n" id="statSingle">0</span><span class="l">Single platform only</span></div>
   </div>
 
+  <section class="page-presence-wrap" id="pagePresenceWrap" hidden aria-labelledby="pagePresenceHeading">
+    <div class="page-presence-head">
+      <button class="section-toggle" type="button" data-section="pagePresence" aria-expanded="false" aria-label="Expand Pages and platform presence" title="Expand section"><svg viewBox="0 0 10 10" fill="currentColor" aria-hidden="true"><path d="M2 0 L8 5 L2 10 Z"/></svg></button>
+      <h2 id="pagePresenceHeading">Pages and platform presence</h2>
+      <span class="page-presence-count" id="pagePresenceCount">0 pages</span>
+    </div>
+    <div class="section-body" id="pagePresenceBody">
+      <div class="page-presence-list" id="pagePresenceList"></div>
+    </div>
+  </section>
+
+  <section class="manual-wrap" id="manualWrap" hidden aria-labelledby="manualHeading">
+    <div class="manual-head">
+      <button class="section-toggle" type="button" data-section="manual" aria-expanded="false" aria-label="Expand Add pages manually" title="Expand section"><svg viewBox="0 0 10 10" fill="currentColor" aria-hidden="true"><path d="M2 0 L8 5 L2 10 Z"/></svg></button>
+      <h2 id="manualHeading">Add pages manually</h2>
+      <span class="manual-count" id="manualCount">0 added</span>
+    </div>
+    <div class="section-body" id="manualBody">
+      <p class="manual-intro">Pages with <strong>zero issues</strong> never appear in the CSV, so they are missing from the page lists (component mapping and project-wide issue mapping) and from the denominator. Add them here &mdash; each added page joins the page universe, the total count, and every mapping list.</p>
+      <div class="manual-input-row">
+        <input type="text" id="manualPageName" placeholder="Page name, e.g. TV Media tab" aria-label="New page name" autocomplete="off" />
+        <button class="btn" id="addPageBtn" type="button">+ Add page</button>
+      </div>
+      <div class="manual-chooser" id="manualChooser" hidden role="group" aria-labelledby="chooserQ">
+        <span class="chooser-q" id="chooserQ">Which platform is this page present on?</span>
+        <button class="btn ghost chooser-opt" type="button" data-choice="Desktop">Desktop</button>
+        <button class="btn ghost chooser-opt" type="button" data-choice="RWD Tablet">RWD Tablet</button>
+        <button class="btn ghost chooser-opt" type="button" data-choice="RWD Mobile">RWD Mobile</button>
+        <button class="btn ghost chooser-opt" type="button" data-choice="all">All 3 platforms</button>
+        <button class="btn ghost chooser-cancel" type="button" id="chooserCancel">Cancel</button>
+      </div>
+      <div class="manual-msg" id="manualMsg" hidden role="alert"></div>
+      <div class="manual-list" id="manualList"></div>
+    </div>
+  </section>
+
+  <section class="mapping-wrap" id="mappingWrap" hidden aria-labelledby="mappingHeading">
+    <div class="mapping-head">
+      <div>
+        <div class="section-title-row">
+          <button class="section-toggle" type="button" data-section="mapping" aria-expanded="false" aria-label="Expand Map shared components" title="Expand section"><svg viewBox="0 0 10 10" fill="currentColor" aria-hidden="true"><path d="M2 0 L8 5 L2 10 Z"/></svg></button>
+          <h2 id="mappingHeading">Map shared components</h2>
+        </div>
+      </div>
+      <div class="mapping-head-actions">
+        <button class="btn ghost" type="button" id="mapAllBtn" title="Set every component to All pages">Map all &rarr; All pages</button>
+      </div>
+    </div>
+    <div class="section-body" id="mappingBody">
+      <div class="mapping-banner" id="mappingUnmapped" hidden></div>
+      <div id="mappingList"></div>
+    </div>
+  </section>
+
+  <section class="pw-wrap" id="pwWrap" hidden aria-labelledby="pwHeading">
+    <div class="pw-head">
+      <button class="section-toggle" type="button" data-section="projectWide" aria-expanded="false" aria-label="Expand Project-wide / app-wide pages" title="Expand section"><svg viewBox="0 0 10 10" fill="currentColor" aria-hidden="true"><path d="M2 0 L8 5 L2 10 Z"/></svg></button>
+      <h2 id="pwHeading">Project-wide / app-wide pages</h2>
+    </div>
+    <div class="section-body" id="projectWideBody">
+      <div class="pw-mark">
+        <div class="pw-mark-head">
+          <span class="pw-mark-title">Mark project-wide pages</span>
+          <span class="pw-mark-count" id="pwMarkCount">0 selected &middot; removed from page count</span>
+        </div>
+        <p class="pw-mark-note">Pages that look project-wide (e.g. containing &ldquo;project-wide&rdquo; or &ldquo;app-wide&rdquo;) are ticked automatically. Untick any that shouldn&rsquo;t be, or tick others &mdash; your choice always sticks.</p>
+        <div class="pw-mark-grid" id="pwMarkGrid"></div>
+      </div>
+      <div id="pwSections"></div>
+    </div>
+  </section>
+
   <div class="toolbar" id="toolbar" hidden>
     <div class="search-field">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.6" y2="16.6"/></svg>
@@ -134,6 +206,7 @@
 </main>
 
 <script src="vpat-format.js"></script>
+<script src="redistribute.js"></script>
 <script src="script.js" defer></script>
 
 </body>

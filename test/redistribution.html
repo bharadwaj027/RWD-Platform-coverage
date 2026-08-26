@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Redistribution, platform-association & project-wide regression</title>
+<style>
+  body{ font-family:'IBM Plex Mono',monospace; margin:24px; color:#16241f; background:#f5f7f4; }
+  h1{ font-size:16px; }
+  .verdict{ font-size:15px; font-weight:700; padding:8px 12px; border-radius:8px; display:inline-block; }
+  .pass{ background:#e1f0e8; color:#1e7a5c; }
+  .fail{ background:#f5e1da; color:#9c3f2a; }
+  pre{ white-space:pre-wrap; font-size:12.5px; line-height:1.5; }
+</style>
+</head>
+<body>
+<h1>Redistribution, platform association, manual pages &amp; project-wide 2b &mdash; RWDModel</h1>
+<div id="verdict"></div>
+<pre id="out"></pre>
+
+<script src="../redistribute.js"></script>
+<script src="../vpat-format.js"></script>
+<script>
+(function(){
+  var CONFIG = {
+    platforms: ['Desktop', 'RWD Tablet', 'RWD Mobile'],
+    sourceDefaults: { web: 'Desktop', tablet: 'RWD Tablet', mobile: 'RWD Mobile' },
+    columns: {
+      page:'Test Unit', summary:'Summary', checkpoint:'Checkpoint', ruleId:'Rule Id',
+      issueStatus:'Issue Status', successCriteria:'Success Criteria', checkpointGroup:'Checkpoint Group',
+      unitType:'Unit Type', issueId:'Issue ID', impact:'Impact', description:'Description'
+    },
+    siteWidePageName: 'project wide'
+  };
+  function r(o){ return o; }
+  var WEB = [
+    r({ 'Test Unit':'Home', 'Unit Type':'Page', 'Summary':'Hero image has no alt', 'Success Criteria':'1.1.1', 'Checkpoint':'1.1.1.a', 'Rule Id':'img-alt', 'Issue Status':'Open' }),
+    r({ 'Test Unit':'Contact', 'Unit Type':'Page', 'Summary':'Heading skipped', 'Success Criteria':'1.3.1', 'Checkpoint':'1.3.1.a', 'Rule Id':'heading-order', 'Issue Status':'Open' }),
+    r({ 'Test Unit':'Footer', 'Unit Type':'Component', 'Summary':'Desktop, RWD Tablet, RWD Mobile - status message', 'Success Criteria':'4.1.3', 'Checkpoint':'4.1.3.a', 'Rule Id':'status-message', 'Issue Status':'Open' }),
+    r({ 'Test Unit':'Header', 'Unit Type':'Component', 'Summary':'RWD Tablet, RWD Mobile - link no text', 'Success Criteria':'4.1.2', 'Checkpoint':'4.1.2.a', 'Rule Id':'control-name-inaccessible', 'Issue Status':'Open' }),
+    r({ 'Test Unit':'Project Wide', 'Unit Type':'Page', 'Issue ID':'PW-ALL', 'Impact':'critical', 'Description':'Focus not visible', 'Summary':'Desktop, RWD Tablet, RWD Mobile - focus not visible', 'Success Criteria':'2.4.7', 'Checkpoint':'2.4.7.a', 'Rule Id':'focus-visible', 'Issue Status':'Open' }),
+    r({ 'Test Unit':'Project Wide', 'Unit Type':'Page', 'Issue ID':'PW-RWD', 'Impact':'serious', 'Description':'Keyboard trap', 'Summary':'RWD Tablet, RWD Mobile - keyboard trap', 'Success Criteria':'2.1.1', 'Checkpoint':'2.1.1.a', 'Rule Id':'keyboard-trap', 'Issue Status':'Open' }),
+    r({ 'Test Unit':'Project Wide', 'Unit Type':'Page', 'Issue ID':'PW-DESK', 'Impact':'moderate', 'Description':'Missing landmark', 'Summary':'Desktop - missing landmark', 'Success Criteria':'3.3.1', 'Checkpoint':'3.3.1.a', 'Rule Id':'landmark', 'Issue Status':'Open' })
+    ,r({ 'Test Unit':'Header Desktop', 'Unit Type':'Component', 'Summary':'Desktop - keyboard accessibility', 'Success Criteria':'4.1.2', 'Checkpoint':'4.1.2.a', 'Rule Id':'header-desktop', 'Issue Status':'Open' })
+    ,r({ 'Test Unit':'Header Tablet', 'Unit Type':'Component', 'Summary':'RWD Tablet - keyboard accessibility', 'Success Criteria':'4.1.2', 'Checkpoint':'4.1.2.a', 'Rule Id':'header-tablet', 'Issue Status':'Open' })
+    ,r({ 'Test Unit':'Header Mobile', 'Unit Type':'Component', 'Summary':'RWD Mobile - keyboard accessibility', 'Success Criteria':'4.1.2', 'Checkpoint':'4.1.2.a', 'Rule Id':'header-mobile', 'Issue Status':'Open' })
+    ,r({ 'Test Unit':'Header Desktop Tablet', 'Unit Type':'Component', 'Summary':'Desktop, RWD Tablet - keyboard accessibility', 'Success Criteria':'4.1.2', 'Checkpoint':'4.1.2.a', 'Rule Id':'header-desktop-tablet', 'Issue Status':'Open' })
+    ,r({ 'Test Unit':'Header Desktop Mobile', 'Unit Type':'Component', 'Summary':'Desktop, RWD Mobile - keyboard accessibility', 'Success Criteria':'4.1.2', 'Checkpoint':'4.1.2.a', 'Rule Id':'header-desktop-mobile', 'Issue Status':'Open' })
+  ];
+  var TABLET = [ r({ 'Test Unit':'Home', 'Unit Type':'Page', 'Summary':'Hero image has no alt', 'Success Criteria':'1.1.1', 'Checkpoint':'1.1.1.a', 'Rule Id':'img-alt', 'Issue Status':'Open' }) ];
+  var MOBILE = [ r({ 'Test Unit':'Home', 'Unit Type':'Page', 'Summary':'Hero image has no alt', 'Success Criteria':'1.1.1', 'Checkpoint':'1.1.1.a', 'Rule Id':'img-alt', 'Issue Status':'Open' }) ];
+  // NB: Contact is audited only in the WEB export, while Home is in all three. Page
+  // presence follows the exports in which each page appears.
+
+  function build(extra){
+    var o = { files:{ web:{rows:WEB}, tablet:{rows:TABLET}, mobile:{rows:MOBILE} }, config:CONFIG, includeClosed:false, sharedMap:{}, manualPages:[], pwExplicit:{}, pwIssueMap:{} };
+    for (var k in (extra||{})) o[k] = extra[k];
+    return RWDModel.build(o);
+  }
+  function buildWebOnly(extra){
+    var o = { files:{ web:{rows:WEB}, tablet:null, mobile:null }, config:CONFIG, includeClosed:false, sharedMap:{}, manualPages:[], pwExplicit:{}, pwIssueMap:{} };
+    for (var k in (extra||{})) o[k] = extra[k];
+    return RWDModel.build(o);
+  }
+  function page(m,k){ return m.pages.find(function(p){return p.key===k;}); }
+  function scPlatforms(m,pk,sc){ var p=page(m,pk); if(!p) return null; var cp=p.checkpoints.find(function(c){return c.sc===sc;}); if(!cp) return null; return CONFIG.platforms.filter(function(pl){return cp.platforms.has(pl);}); }
+  function eqArr(a,b){ return JSON.stringify(a)===JSON.stringify(b); }
+
+  var log=[], fail=0, checks=0;
+  function ok(c,msg){ checks++; if(!c){fail++; log.push('  [FAIL] '+msg);} else log.push('  [ok]   '+msg); }
+
+  // ---- Page availability = source CSV membership for CSV pages ----
+  var m0 = build();
+  log.push('Page availability (CSV page in a 3-platform audit):');
+  ok(eqArr(page(m0,'contact').presence, ['Desktop']), 'Contact (audited only in WEB) is AVAILABLE on Desktop only');
+  ok(eqArr(page(m0,'home').presence, ['Desktop','RWD Tablet','RWD Mobile']), 'Home available on all three');
+
+  // ---- Project-wide issue platform PRESERVATION (issue ∩ available) ----
+  log.push('\nProject-wide issue platform association (acceptance 1–5, 11):');
+  var mAll = build({ pwIssueMap:{ 'PW-ALL': {mode:'all',pages:[]} } });
+  ok(eqArr(scPlatforms(mAll,'home','2.4.7'), ['Desktop','RWD Tablet','RWD Mobile']), 'All-platforms issue -> Home keeps all THREE (not just Desktop)');
+  ok(eqArr(scPlatforms(mAll,'contact','2.4.7'), ['Desktop']), 'All-platforms issue -> Contact keeps Desktop only (RWD page absence gates tags)');
+  var mDesk = build({ pwIssueMap:{ 'PW-DESK': {mode:'all',pages:[]} } });
+  ok(eqArr(scPlatforms(mDesk,'home','3.3.1'), ['Desktop']), 'Desktop-only issue -> Home gets Desktop ONLY (never expanded to RWD)');
+  var mRwd = build({ pwIssueMap:{ 'PW-RWD': {mode:'pages',pages:['home']} } });
+  ok(eqArr(scPlatforms(mRwd,'home','2.1.1'), ['RWD Tablet','RWD Mobile']), 'RWD Tablet+Mobile issue -> Home gets exactly RWD Tablet + RWD Mobile');
+
+  // ---- Manual page availability gates the intersection (acceptance 9) ----
+  log.push('\nManual-page availability gate (acceptance 9):');
+  var mDeskManual = build({ manualPages:[{name:'TV Media tab', platforms:['Desktop']}], pwIssueMap:{ 'PW-ALL': {mode:'all',pages:[]} } });
+  ok(eqArr(scPlatforms(mDeskManual,'tv media tab','2.4.7'), ['Desktop']), 'All-platforms issue -> Desktop-only manual page = Desktop only');
+  var mDMManual = build({ manualPages:[{name:'Widget', platforms:['Desktop','RWD Mobile']}], pwIssueMap:{ 'PW-ALL': {mode:'all',pages:[]} } });
+  ok(eqArr(scPlatforms(mDMManual,'widget','2.4.7'), ['Desktop','RWD Mobile']), 'All-platforms issue -> Desktop+Mobile manual page = Desktop + RWD Mobile (Tablet excluded, page absent there)');
+
+  // ---- Same logic for COMPONENTS (acceptance 6, 7, 12) ----
+  log.push('\nComponent platform association (acceptance 6, 7, 12):');
+  var cAll = build({ sharedMap:{ 'component:footer': {mode:'all',pages:[]} } });
+  ok(eqArr(scPlatforms(cAll,'home','4.1.3'), ['Desktop','RWD Tablet','RWD Mobile']), 'All-platforms component -> Home keeps all three');
+  var cRwd = build({ sharedMap:{ 'component:header': {mode:'pages',pages:['home']} } });
+  ok(eqArr(scPlatforms(cRwd,'home','4.1.2'), ['RWD Tablet','RWD Mobile']), 'RWD-only component -> Home gets only RWD Tablet + RWD Mobile');
+  var cDesktop = build({ sharedMap:{ 'component:header desktop': {mode:'pages',pages:['home']} } });
+  ok(eqArr(scPlatforms(cDesktop,'home','4.1.2'), ['Desktop']), 'Desktop-only component -> Home gets Desktop only');
+  var cTablet = build({ sharedMap:{ 'component:header tablet': {mode:'all',pages:[]} } });
+  ok(eqArr(scPlatforms(cTablet,'home','4.1.2'), ['RWD Tablet']), 'Tablet-only component -> All pages preserves RWD Tablet only');
+  var cMobile = build({ sharedMap:{ 'component:header mobile': {mode:'pages',pages:['home']} } });
+  ok(eqArr(scPlatforms(cMobile,'home','4.1.2'), ['RWD Mobile']), 'Mobile-only component -> Selected pages preserves RWD Mobile only');
+  var cDeskTablet = build({ sharedMap:{ 'component:header desktop tablet': {mode:'pages',pages:['home']} } });
+  ok(eqArr(scPlatforms(cDeskTablet,'home','4.1.2'), ['Desktop','RWD Tablet']), 'Desktop+Tablet component -> Selected pages preserve only those platforms');
+  var cDeskMobile = build({ sharedMap:{ 'component:header desktop mobile': {mode:'all',pages:[]} } });
+  ok(eqArr(scPlatforms(cDeskMobile,'home','4.1.2'), ['Desktop','RWD Mobile']), 'Desktop+Mobile component -> All pages preserve only those platforms');
+  var cDeskManual = build({ manualPages:[{name:'TV Media tab', platforms:['Desktop']}], sharedMap:{ 'component:header': {mode:'all',pages:[]} } });
+  ok(scPlatforms(cDeskManual,'tv media tab','4.1.2') === null, 'RWD-only component -> Desktop-only manual page gets NOTHING (no RWD expansion)');
+  var cFootDeskManual = build({ manualPages:[{name:'TV Media tab', platforms:['Desktop']}], sharedMap:{ 'component:footer': {mode:'all',pages:[]} } });
+  ok(eqArr(scPlatforms(cFootDeskManual,'tv media tab','4.1.3'), ['Desktop']), 'All-platforms component -> Desktop-only manual page = Desktop only');
+  var cDesktopManual = build({ manualPages:[{name:'Desktop tab', platforms:['Desktop','RWD Tablet','RWD Mobile']}], sharedMap:{ 'component:header desktop': {mode:'pages',pages:['desktop tab']} } });
+  ok(eqArr(scPlatforms(cDesktopManual,'desktop tab','4.1.2'), ['Desktop']), 'Desktop-only component -> all-platform manual page remains Desktop only');
+
+  // ---- Component platform -> VPAT page annotation ----
+  log.push('\nComponent platform annotation in VPAT text:');
+  var rwdComponent = { 'Test Unit':'RWD Header', 'Unit Type':'Component', 'Summary':'Keyboard accessibility', 'Success Criteria':'4.1.2', 'Checkpoint':'4.1.2.a', 'Rule Id':'rwd-header', 'Issue Status':'Open' };
+  var rwdPage = { 'Test Unit':'Checkout', 'Unit Type':'Page', 'Summary':'Checkout issue', 'Success Criteria':'1.1.1', 'Checkpoint':'1.1.1.a', 'Rule Id':'checkout', 'Issue Status':'Open' };
+  var rwdModel = build({
+    files:{ web:{rows:[rwdPage]}, tablet:{rows:[rwdPage, rwdComponent]}, mobile:null },
+    sharedMap:{ 'component:rwd header': {mode:'pages',pages:['checkout']} }
+  });
+  var rwdRule = rwdModel.ruleGroups.find(function(rg){ return rg.ruleId === 'rwd-header'; });
+  var rwdVp = VPATFormat.vpatRemark({ one:'Keyboard issue.', multiple:'Keyboard issues.', hasProse:true, pages:rwdRule.pages }, CONFIG.platforms, { 'Desktop':'Desktop', 'RWD Tablet':'Responsive Web Design Tablet', 'RWD Mobile':'Responsive Web Design Mobile' });
+  ok(rwdRule && rwdRule.pages.length === 1 && eqArr(Array.from(rwdRule.pages[0].platforms), ['RWD Tablet']), 'RWD component rule group keeps RWD Tablet on mapped page');
+  ok(rwdVp.indexOf('Checkout (Responsive Web Design Tablet).') >= 0 && rwdVp.indexOf('(Desktop)') < 0, 'VPAT text annotates component page with RWD Tablet, not Desktop');
+
+  // ---- Audit scope gate: RWD not added when RWD CSVs were not uploaded (acceptance 13) ----
+  log.push('\nAudit-scope gate (only WEB uploaded):');
+  var wOnly = buildWebOnly({ pwIssueMap:{ 'PW-ALL': {mode:'all',pages:[]} } });
+  ok(eqArr(scPlatforms(wOnly,'home','2.4.7'), ['Desktop']), 'All-platforms issue with only WEB uploaded -> Home = Desktop only (RWD out of scope)');
+
+  // ---- Section classification & no double-count (acceptance 8 + integrity) ----
+  log.push('\nSection classification:');
+  ok(eqArr(m0.pwSections.map(function(s){return s.key;}), ['desktop','rwd','all']), 'sections: Desktop, RWD Platforms, All Platforms');
+  ok(m0.pwSections.find(function(s){return s.key==='all';}).label === 'All Platforms', 'all-three issue labelled "All Platforms"');
+  ok(m0.pwSections.find(function(s){return s.key==='rwd';}).label === 'RWD Platforms', 'Tablet+Mobile issue labelled "RWD Platforms" (not converted to All)');
+  var ids = m0.pwSections.reduce(function(a,s){return a.concat(s.issues.map(function(i){return i.id;}));},[]);
+  ok(ids.length === 3 && new Set(ids).size === 3, 'each issue in exactly one section (no double-count)');
+  ok(m0.pwSections.find(function(s){return s.key==='rwd';}).applicableCount === 1, 'RWD section applicable pages = 1 CSV page present on RWD');
+
+  // ---- Override stickiness ----
+  log.push('\nProject-wide marking overrides:');
+  var mUnmark = build({ pwExplicit:{ 'project wide': false } });
+  ok(mUnmark.realPageKeys.indexOf('project wide') >= 0 && mUnmark.pwSections.length === 0, 'unmarking Project Wide returns it as a real page, no sections');
+
+  var v=document.getElementById('verdict');
+  if(fail){ v.className='verdict fail'; v.textContent='FAILED — '+fail+' of '+checks+' checks failed'; }
+  else { v.className='verdict pass'; v.textContent='PASSED — all '+checks+' checks'; }
+  document.getElementById('out').textContent = log.join('\n');
+  window.__REDIST_TEST = { fail:fail, checks:checks };
+})();
+</script>
+</body>
+</html>

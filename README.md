@@ -10,9 +10,11 @@ No backend, no build step — just static files.
 |---------------|------------|
 | `index.html`  | Page structure/markup. Loads `papaparse.min.js` locally, then `style.css` and `script.js`. |
 | `style.css`   | All styling. Design tokens (colors, fonts) are CSS variables at the top of the `:root` block. |
-| `script.js`   | All app logic: CSV parsing, the Success-Criteria/Page/Platform matrix builder, search/filter/sort, CSV export. |
+| `script.js`   | App presentation + wiring: rendering the matrix, search/filter/sort, CSV/VPAT export, and the shared-unit mapping UI. The page/rule model itself is built by `redistribute.js`. |
+| `redistribute.js` | The page/rule model builder (`RWDModel.build`), kept DOM-free so the tool and its regression test run the exact same code. Reads every CSV row, builds the page universe (CSV + manual pages, each with platform presence), separates **components** and **marked project-wide pages** from real pages, and redistributes each mapped component / project-wide issue onto its target pages — see the sections below. |
 | `vpat-format.js` | The VPAT sentence assembly (`VPATFormat`), kept DOM-free so both the tool and the regression test run the exact same code. It builds a remark from a rule's source prose + the page/platform list — see below. |
 | `test/vpat-regression.html` | Open in a browser to verify generated VPAT text matches `bulleted_vpat_text.json` exactly for the 4.1.2 rules (and that no `[S]` bracket is ever emitted). Shows PASS/FAIL — no build step or Node needed. |
+| `test/redistribution.html` | Open in a browser to verify component redistribution, presence-gating, manually added pages, and the project-wide 2b workflow (auto-detection, platform sections, per-issue mapping, override stickiness, no double-count). Shows PASS/FAIL — no build step or Node needed. |
 | `config.json` | Editable settings — see below. Loaded via `fetch()` at startup; if that fails (e.g. opened via `file://` with no local server), the app falls back to the same values hard-coded in `script.js` so it still works. |
 | `manifest.json` | Browser extension manifest for a Chrome/Edge/Brave popup extension. |
 | `papaparse.min.js` | Local copy of PapaParse so the extension works without remote CDN access. |
@@ -74,10 +76,126 @@ expand/collapse toggle, both expanded by default. The level for each SC comes fr
 WCAG map (`WCAG_LEVEL` in `script.js`). Collapsing one level never affects the other, and all
 counts, VPAT text, and closed-issue filtering work regardless of collapse state.
 
+## Map shared components
+
+A **component** is a row whose `Unit Type` column is `Component` (a Header, Footer, Cookie
+Wall, embedded video…) — a shared element, not a screen of its own. The **"Map shared
+components"** section lists every component found, with its detected platforms and success
+criteria, and lets you choose where each one applies:
+
+- **All pages** — the component is treated as present on every in-scope page.
+- **Selected pages** — tick the exact real pages it appears on.
+- **Not mapped** (default) — it contributes nothing until you map it. A banner reports how
+  many components are still unmapped. Use **Map all → All pages** to map every component to
+  every page in one click.
+
+(Project-wide / app-wide pages are handled separately, per-issue — see the next section.)
+
+When a component is mapped, each of its findings is **redistributed** onto the target pages
+and counted there as a direct page failure, exactly as if the issue had been logged on that
+page. The platforms recorded on each target page are the **intersection of the finding's
+platforms and the page's platform availability** — the finding's platforms are preserved,
+never expanded to a platform the page does not exist on:
+
+```
+recorded platforms  =  issue/component platforms  ∩  page availability
+```
+
+**Platform availability vs. applicability.** These are deliberately separate — an issue's
+platform is never inferred from the page, and a page never gets platforms it does not have:
+
+- **Page availability** — *which platforms the page exists on.* A **CSV page** is available
+  on the platform(s) whose export contains that page. A **manually added page** is available
+  on exactly the platform(s) you chose for it.
+- **Issue / component applicability** — *which platforms the finding occurs on* (from the
+  Summary platform prefix, or the source CSV when unprefixed).
+
+So a component/issue on **RWD Tablet + RWD Mobile** mapped to a page present in both RWD
+exports records **both** RWD tags; if the selected page is absent from either export, that
+platform tag is withheld. A **Desktop-only** finding records only Desktop, and the same
+finding on a manually added *Desktop + RWD Mobile* page records **Desktop + RWD Mobile**.
+If the RWD CSVs were never uploaded, RWD is out of scope and is never recorded.
+
+A page is **never duplicated** — if it already fails that SC directly, the surviving
+platforms merge into the existing row (the union is idempotent). Each redistributed page
+shows a small **via _Unit_**
+tag (and a `Redistributed From` column in the full-detail CSV) so you can trace where the
+coverage came from. VPAT remarks include the redistributed pages the same way. Mapping
+selections persist as you toggle Include-Closed or upload more files; units/pages that vanish
+from the uploads are pruned from the mapping.
+
+Run `test/redistribution.html` in a browser to confirm this behavior end-to-end.
+
+## Add pages manually
+
+Pages with **zero issues** never appear in a CSV, so they are missing from the page
+universe, the mapping lists, and presence-gating. The **Add pages manually** section lets
+you add them:
+
+1. Type a page name and click **+ Add page**.
+2. The tool asks **"Which platform is this page present on?"** — choose **Desktop**,
+   **RWD Tablet**, **RWD Mobile**, or **All 3 platforms**. The page is added only after a
+   platform is chosen.
+
+Each added page joins the **page universe for the chosen platform(s)** — it becomes a
+selectable target in every component / project-wide mapping list, and it carries that
+platform as its **presence**, so redistribution gating treats it exactly like a CSV page: a
+Desktop-only added page receives only Desktop from a component mapped onto it; an All-3 page
+can receive all three. A zero-issue added page shows no failures of its own, but once a
+shared unit is mapped onto it, it appears in the results (tagged **Added**).
+
+**Duplicates** are checked per platform against the whole universe (CSV + manual). Adding a
+page for a platform it is already present on is rejected with a message; adding the same
+page name for a *different* platform is allowed (it extends that page's presence rather than
+duplicating it). A validation message also appears for an empty/whitespace name. Added pages
+are listed with a **Remove** control; removing one drops it from the universe and every
+mapping list and recomputes. **Clear all files** clears manually added pages too.
+
+> Note: this tool measures **per-Success-Criterion platform coverage** (1/2/3 platforms),
+> not a page-percentage, so it has no page-count *denominator* or *pass-rate* metric — those
+> belong to the Conformance Calculator. Manually added pages participate in everything this
+> tool's page list actually drives: mapping targets, presence-gating, and appearing in
+> results when a shared unit is redistributed onto them.
+
+## Project-wide / app-wide pages (Section 2b)
+
+Some audits log application-wide findings against a dedicated **project-wide / app-wide
+page** instead of a real screen. That page is not a screen, so it is excluded from the page
+universe and its **individual issues** are mapped onto the real pages where they reproduce.
+
+**Mark project-wide pages.** A grid lists every page in the universe (CSV + manual). Pages
+whose name matches *project-wide* / *app-wide* (or the configured `siteWidePageName`) are
+**auto-ticked**; you can untick those or tick any other page, and **your choice sticks**
+(it overrides the auto default and persists across recomputes/uploads). A marked page is
+removed from the real page count and its rows become project-wide issues.
+
+**Platform sections.** Project-wide issues are grouped by the platform(s) they apply to
+(from the Summary prefix / source CSV) into clearly-labelled sections:
+
+- **Project Wide — Desktop / RWD Tablet / RWD Mobile** — single-platform issues.
+- **Project Wide — RWD Platforms** — issues on RWD Tablet + RWD Mobile (no Desktop).
+- **Project Wide — All Platforms** — issues on all three.
+
+Each section header shows `project-wide · N issues · M unmapped`. Every issue shows its
+**Issue ID, severity, Success Criterion, platforms, description**, and a live `X / N pages`
+count.
+
+**Per-issue mapping.** For each issue you pick the real pages where it reproduces:
+**All pages (N)** maps to the whole applicable universe (dynamic — includes manual pages
+and updates as the universe changes); **Clear** unmaps it; ticking pages selects them; the
+**filter/paste box + Select matches** selects pages by name (one per line or comma-separated).
+The page list shown for an issue contains **only pages applicable to that issue's platform
+context** — an RWD Tablet issue lists RWD-Tablet pages, an *All Platforms* issue lists all —
+and it always includes **manually added pages**. Each mapped page receives the issue's SC as
+a direct failure, on the issue's platforms **gated by the page's presence** (so an all-three
+issue mapped onto a Desktop-only page lands only on Desktop). Unmapped issues count for
+nothing. The same issue is never shown in two sections, so overall totals never double-count.
+
 ## How the data model works
 
-1. Each row of an uploaded CSV is one accessibility issue on one page (the axe Auditor
-   `Test Unit` column).
+1. Each row of an uploaded CSV is one accessibility issue on one `Test Unit`. A `Test Unit`
+   whose `Unit Type` is `Component`, or that matches `siteWidePageName`, is a **shared unit**
+   handled by the redistribution step above; every other `Test Unit` is a real page.
 2. The platform(s) an issue applies to come from the `Desktop / RWD Tablet / RWD Mobile:`
    prefix on the `Summary` column, if present. If there's no prefix, the issue is
    attributed to whichever CSV it came from (`config.json` → `sourceDefaults`).
@@ -99,7 +217,8 @@ counts, VPAT text, and closed-issue filtering work regardless of collapse state.
     "summary": "Summary",
     "checkpoint": "Checkpoint",
     "successCriteria": "Success Criteria",
-    "checkpointGroup": "Checkpoint Group"
+    "checkpointGroup": "Checkpoint Group",
+    "unitType": "Unit Type"
   },
   "siteWidePageName": "project wide"
 }
@@ -115,8 +234,11 @@ counts, VPAT text, and closed-issue filtering work regardless of collapse state.
   in `index.html`).
 - **`columns`** — the axe Auditor CSV column names the app reads from. Change these if
   a differently-configured axe Auditor export uses different header names.
-- **`siteWidePageName`** — the `Test Unit` value (case-insensitive) treated as a
-  site-wide/project-wide item rather than an actual page, for the "Site-wide" tag.
+- **`columns.unitType`** — the axe Auditor column whose value `Component` marks a row as a
+  shared component (redistributed, not shown as its own page).
+- **`siteWidePageName`** — the `Test Unit` value (case-insensitive) treated as the
+  project-wide / app-wide container: excluded from the page list and redistributed onto the
+  real pages you map it to (see "Components & project-wide redistribution").
 
 ## Running it
 
