@@ -451,12 +451,15 @@
   }
   .chooser-q{ font-size:13px; font-weight:600; color:var(--ink); margin-right:4px; }
   .chooser-opts{ display:inline-flex; align-items:center; gap:8px; flex-wrap:wrap; }
-  .chooser-opt[aria-pressed="true"]{
+  .chooser-opt[aria-pressed="true"], .chooser-all[aria-pressed="true"]{
     background:var(--indigo); color:var(--indigo-ink); border-color:var(--indigo);
   }
-  .chooser-opt[aria-pressed="true"]:hover{ border-color:var(--indigo-deep); }
-  .chooser-confirm{ margin-left:4px; }
-  .chooser-cancel{ margin-left:auto; }
+  .chooser-opt[aria-pressed="true"]:hover, .chooser-all[aria-pressed="true"]:hover{ border-color:var(--indigo-deep); }
+  /* "All platforms" is a shortcut, not a platform — set it off with a leading divider. */
+  .chooser-all{ margin-left:4px; border-left:1px solid var(--line); padding-left:14px; }
+  /* Keep "Add page" and "Cancel" together on the right of the chooser row. */
+  .chooser-confirm{ margin-left:auto; }
+  .chooser-cancel{ margin-left:8px; }
   .manual-msg{
     margin-top:10px; padding:8px 12px; border-radius:8px;
     background:var(--rust-bg); border:1px solid var(--rust-line);
