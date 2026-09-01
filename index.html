@@ -92,14 +92,14 @@
       <p class="manual-intro">Pages with <strong>zero issues</strong> never appear in the CSV, so they are missing from the page lists (component mapping and project-wide issue mapping) and from the denominator. Add them here &mdash; each added page joins the page universe, the total count, and every mapping list.</p>
       <div class="manual-input-row">
         <input type="text" id="manualPageName" placeholder="Page name, e.g. TV Media tab" aria-label="New page name" autocomplete="off" />
-        <button class="btn" id="addPageBtn" type="button">+ Add page</button>
       </div>
-      <div class="manual-chooser" id="manualChooser" hidden role="group" aria-labelledby="chooserQ">
+      <div class="manual-chooser" id="manualChooser" role="group" aria-labelledby="chooserQ">
         <span class="chooser-q" id="chooserQ">Which platform is this page present on?</span>
         <div class="chooser-opts" role="group" aria-label="Platforms this page is present on (select one or more)">
           <button class="btn ghost chooser-opt" type="button" data-choice="Desktop" aria-pressed="false">Desktop</button>
           <button class="btn ghost chooser-opt" type="button" data-choice="RWD Mobile" aria-pressed="false">RWD Mobile</button>
           <button class="btn ghost chooser-opt" type="button" data-choice="RWD Tablet" aria-pressed="false">RWD Tablet</button>
+          <button class="btn ghost chooser-all" type="button" id="chooserAll" aria-pressed="false" title="Select all three platforms">All platforms</button>
         </div>
         <button class="btn primary chooser-confirm" type="button" id="chooserConfirm">Add page</button>
         <button class="btn ghost chooser-cancel" type="button" id="chooserCancel">Cancel</button>

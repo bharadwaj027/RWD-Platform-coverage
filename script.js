@@ -150,7 +150,6 @@
     realPageKeys: [],           // page universe (real pages only) offered as mapping targets
     manualPages: [],            // hand-added zero-issue pages: [{ id, name, platforms:[...] }] (persisted)
     manualSeq: 0,               // id generator for manual pages
-    pendingManualName: null,    // name awaiting a platform choice (the "which platform?" step)
     pendingManualPlatforms: [], // platforms multi-selected for the page being added (source of truth)
     projectWideExplicit: {},    // pageKey -> bool: user overrides of the auto project-wide marking (sticks)
     pwIssueMap: {},             // issueId -> { mode:'all'|'pages'|'none', pages:[pageKey,...] } (persisted)
@@ -546,11 +545,22 @@
       btn.setAttribute('aria-pressed', String(on));
       btn.classList.toggle('on', on);
     });
+    // "All platforms" reads as pressed only when every platform is selected.
+    const allBtn = document.getElementById('chooserAll');
+    if (allBtn){
+      const allOn = PLATFORMS.length > 0 && PLATFORMS.every(p => chosen.has(p));
+      allBtn.setAttribute('aria-pressed', String(allOn));
+      allBtn.classList.toggle('on', allOn);
+    }
   }
 
-  function showChooser(show){
-    document.getElementById('manualChooser').hidden = !show;
-    if (!show){ state.pendingManualName = null; state.pendingManualPlatforms = []; }
+  // Clear the in-progress page name + platform selection. The chooser itself is always
+  // visible (no reveal step) — this just returns it to an empty state.
+  function resetChooser(){
+    state.pendingManualPlatforms = [];
+    const input = document.getElementById('manualPageName');
+    if (input) input.value = '';
+    manualMsg('');
     syncChooserButtons();
   }
 
@@ -564,24 +574,21 @@
     manualMsg('');
   }
 
-  // Step 1: validate the name, then ASK which platform(s) the page is present on (don't add yet).
-  function beginAddPage(){
-    const input = document.getElementById('manualPageName');
-    const name = (input.value || '').trim();
+  // "All platforms": select all three at once; a second click (when all are already
+  // selected) clears them.
+  function toggleAllPlatforms(){
+    const allSelected = PLATFORMS.every(p => state.pendingManualPlatforms.indexOf(p) >= 0);
+    state.pendingManualPlatforms = allSelected ? [] : PLATFORMS.slice();
+    syncChooserButtons();
     manualMsg('');
-    if (!name){ manualMsg('Please enter a page name.'); showChooser(false); input.focus(); return; }
-    state.pendingManualName = name;
-    state.pendingManualPlatforms = [];
-    showChooser(true);
-    const first = document.querySelector('#manualChooser .chooser-opt');
-    if (first) first.focus();
   }
 
-  // Step 2: platform(s) selected + "Add page" confirmed — validate, then add. A page cannot
-  // be added without a name AND at least one selected platform.
+  // "Add page" confirmed — validate, then add. A page cannot be added without a name AND
+  // at least one selected platform.
   function commitAddPage(){
-    const name = state.pendingManualName || (document.getElementById('manualPageName').value || '').trim();
-    if (!name){ manualMsg('Please enter a page name.'); return; }
+    const input = document.getElementById('manualPageName');
+    const name = (input.value || '').trim();
+    if (!name){ manualMsg('Please enter a page name.'); input.focus(); return; }
     const chosen = orderedPlatforms(state.pendingManualPlatforms);
     if (!chosen.length){ manualMsg('Select at least one platform this page is present on.'); return; }
     const key = name.toLowerCase();
@@ -592,8 +599,9 @@
       return;
     }
     state.manualPages.push({ id: ++state.manualSeq, name: name, platforms: chosen });
-    document.getElementById('manualPageName').value = '';
-    showChooser(false);
+    input.value = '';
+    state.pendingManualPlatforms = [];
+    syncChooserButtons();
     manualMsg('');
     recompute(); // structural: the new page joins the universe + every mapping list
     announce('Added page ' + name + ' on ' + platformsLabel(chosen) + '.');
@@ -755,7 +763,7 @@
     document.getElementById('manualWrap').hidden = !hasAny;
     renderPagePresence();
     renderSectionToggles();
-    if (hasAny) renderManualPages(); else { showChooser(false); manualMsg(''); }
+    if (hasAny) renderManualPages(); else resetChooser();
     if (hasAny) renderProjectWide(); else document.getElementById('pwWrap').hidden = true;
     if (!hasAny) document.getElementById('mappingWrap').hidden = true;
 
@@ -1218,13 +1226,14 @@
     }
   });
 
-  // Add pages manually
-  document.getElementById('addPageBtn').addEventListener('click', beginAddPage);
+  // Add pages manually. The chooser is always visible: type a name, toggle platform(s)
+  // (or "All platforms"), then "Add page". Enter in the name field also commits.
   document.getElementById('manualPageName').addEventListener('keydown', e => {
-    if (e.key === 'Enter'){ e.preventDefault(); beginAddPage(); }
+    if (e.key === 'Enter'){ e.preventDefault(); commitAddPage(); }
   });
-  document.getElementById('chooserCancel').addEventListener('click', () => { showChooser(false); manualMsg(''); });
+  document.getElementById('chooserCancel').addEventListener('click', resetChooser);
   document.getElementById('chooserConfirm').addEventListener('click', commitAddPage);
+  document.getElementById('chooserAll').addEventListener('click', toggleAllPlatforms);
   document.querySelectorAll('#manualChooser .chooser-opt').forEach(btn => {
     btn.addEventListener('click', () => toggleChooserPlatform(btn.getAttribute('data-choice')));
   });
@@ -1359,7 +1368,6 @@
     state.realPageKeys = [];
     state.manualPages = [];
     state.manualSeq = 0;
-    state.pendingManualName = null;
     state.pendingManualPlatforms = [];
     state.projectWideExplicit = {};
     state.pwIssueMap = {};
@@ -1367,8 +1375,7 @@
     state.projectWideKeys = [];
     state.pwSections = [];
     document.getElementById('manualPageName').value = '';
-    showChooser(false);
-    manualMsg('');
+    resetChooser();
     document.getElementById('pwWrap').hidden = true;
     state.expanded.clear();
     state.includeClosed = false;
