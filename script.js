@@ -148,9 +148,10 @@
     sharedUnits: [],            // components + project-wide pages found in the uploads
     sharedMap: {},              // unitKey -> { mode:'all'|'pages'|'none', pages:[pageKey,...] } (persisted across recomputes)
     realPageKeys: [],           // page universe (real pages only) offered as mapping targets
-    manualPages: [],            // hand-added zero-issue pages: [{ id, name, choice, platforms:[...] }] (persisted)
+    manualPages: [],            // hand-added zero-issue pages: [{ id, name, platforms:[...] }] (persisted)
     manualSeq: 0,               // id generator for manual pages
     pendingManualName: null,    // name awaiting a platform choice (the "which platform?" step)
+    pendingManualPlatforms: [], // platforms multi-selected for the page being added (source of truth)
     projectWideExplicit: {},    // pageKey -> bool: user overrides of the auto project-wide marking (sticks)
     pwIssueMap: {},             // issueId -> { mode:'all'|'pages'|'none', pages:[pageKey,...] } (persisted)
     pageCatalog: [],            // every candidate page (real + project-wide + manual) for the mark grid
@@ -250,7 +251,7 @@
       config: CONFIG,
       includeClosed: state.includeClosed,
       sharedMap: state.sharedMap,
-      manualPages: state.manualPages.map(e => ({ name: e.name, platforms: e.platforms })),
+      manualPages: state.manualPages.map(e => ({ name: e.name, platforms: manualEntryPlatforms(e) })),
       pwExplicit: state.projectWideExplicit,
       pwIssueMap: state.pwIssueMap
     });
@@ -416,6 +417,32 @@
       !(((state.sharedMap[u.key] || {}).pages || []).length)).length;
   }
 
+  // Real pages offered as mapping targets for every component, alphabetical.
+  function mappingRealPages(){
+    return state.pages.map(p => ({ key: p.key, display: p.display }))
+      .sort((a, b) => a.display.localeCompare(b.display));
+  }
+
+  // Resolved page-key selection for a unit, reading the last-computed model so an "all"
+  // mapping expands to the full page list before a single page is unticked. Mirrors the
+  // project-wide issue mapping's currentIssueSelection.
+  function currentUnitSelection(unitKey){
+    const u = (state.sharedUnits || []).find(x => x.key === unitKey);
+    return new Set(u ? u.mappedPageKeys : []);
+  }
+
+  // Update just one card's "X / N pages" counter in place (used after an in-place checkbox
+  // toggle that re-runs the model but not the mapping UI).
+  function updateUnitCount(unitKey){
+    const total = state.pages.length;
+    const selCount = currentUnitSelection(unitKey).size;
+    document.querySelectorAll('.mapping-unit').forEach(card => {
+      if (card.getAttribute('data-unit') !== unitKey) return;
+      const c = card.querySelector('.mapping-unit-count');
+      if (c) c.textContent = selCount + ' / ' + total + ' page' + (total === 1 ? '' : 's');
+    });
+  }
+
   function renderMapping(){
     const wrap = document.getElementById('mappingWrap');
     const list = document.getElementById('mappingList');
@@ -427,45 +454,49 @@
     }
     wrap.hidden = false;
 
-    const realPages = state.pages.map(p => ({ key: p.key, display: p.display }))
-      .sort((a, b) => a.display.localeCompare(b.display));
+    const realPages = mappingRealPages();
+    const total = realPages.length;
 
     list.innerHTML = state.sharedUnits.map(u => {
       const sel = state.sharedMap[u.key] || { mode: 'none', pages: [] };
-      const selPages = new Set(sel.pages || []);
+      const liveKeys = new Set(realPages.map(p => p.key));
+      const selectedKeys = sel.mode === 'all'
+        ? new Set(liveKeys)
+        : sel.mode === 'pages'
+          ? new Set((sel.pages || []).filter(k => liveKeys.has(k)))
+          : new Set();
+      const selCount = selectedKeys.size;
       const plats = u.platforms.length ? u.platforms.join(', ') : 'no platform detected';
-      const scs = u.scList.length ? ('SC ' + u.scList.join(', ')) : 'no SC';
+      const scs = u.scList.length ? u.scList.join(', ') : '';
+      const titleMeta = plats + ' · ' + u.totalRows + ' issue' + (u.totalRows === 1 ? '' : 's') +
+        (u.scList.length ? ' · SC ' + u.scList.join(', ') : '');
       const checks = realPages.map(pg =>
-        '<label class="map-page' + (selPages.has(pg.key) ? ' on' : '') + '">' +
+        '<label class="map-page' + (selectedKeys.has(pg.key) ? ' on' : '') + '">' +
           '<input type="checkbox" class="map-page-cb" data-unit="' + escapeHtml(u.key) + '" data-page="' + escapeHtml(pg.key) + '"' +
-          (selPages.has(pg.key) ? ' checked' : '') + (sel.mode === 'pages' ? '' : ' disabled') + ' /> ' +
+          (selectedKeys.has(pg.key) ? ' checked' : '') + ' /> ' +
           escapeHtml(pg.display) +
         '</label>'
       ).join('') || '<p class="map-empty">No real pages in scope yet — upload a CSV that contains page-type Test Units.</p>';
 
       return '<div class="mapping-unit" data-unit="' + escapeHtml(u.key) + '">' +
         '<div class="mapping-unit-head">' +
-          '<span class="unit-badge ' + u.type + '">' + UNIT_BADGE[u.type] + '</span>' +
-          '<span class="unit-name">' + escapeHtml(u.display) + '</span>' +
-          '<span class="unit-meta">' + escapeHtml(plats) + '</span>' +
-          '<span class="unit-meta soft">' + escapeHtml(scs) + '</span>' +
-          '<span class="unit-meta soft">' + u.totalRows + ' issue' + (u.totalRows === 1 ? '' : 's') + '</span>' +
+          '<span class="unit-name" title="' + escapeHtml(titleMeta) + '">' + escapeHtml(u.display) + '</span>' +
+          (scs ? '<span class="unit-sc-badge">' + escapeHtml(scs) + '</span>' : '') +
+          '<span class="mapping-unit-count">' + selCount + ' / ' + total + ' page' + (total === 1 ? '' : 's') + '</span>' +
         '</div>' +
-        '<div class="mapping-unit-controls" role="radiogroup" aria-label="Where does ' + escapeHtml(u.display) + ' apply?">' +
-          radioHtml(u.key, 'all', 'All pages', sel.mode === 'all') +
-          radioHtml(u.key, 'pages', 'Selected pages', sel.mode === 'pages') +
-          radioHtml(u.key, 'none', 'Not mapped', sel.mode !== 'all' && sel.mode !== 'pages') +
+        '<div class="mapping-unit-actions">' +
+          '<button class="btn ghost map-global" type="button" data-unit="' + escapeHtml(u.key) + '" title="Map ' + escapeHtml(u.display) + ' to every page">Global (all ' + total + ')</button>' +
+          '<button class="btn ghost map-clear" type="button" data-unit="' + escapeHtml(u.key) + '" title="Unmap ' + escapeHtml(u.display) + '">Clear</button>' +
         '</div>' +
-        '<div class="mapping-unit-pages"' + (sel.mode === 'pages' ? '' : ' hidden') + '>' + checks + '</div>' +
+        '<div class="mapping-unit-filter">' +
+          '<textarea class="map-filter" data-unit="' + escapeHtml(u.key) + '" placeholder="Filter, or paste one page per line to select…" rows="2" aria-label="Filter or paste pages for ' + escapeHtml(u.display) + '"></textarea>' +
+          '<button class="btn map-selectmatches" type="button" data-unit="' + escapeHtml(u.key) + '">Select matches</button>' +
+        '</div>' +
+        '<div class="mapping-unit-pages">' + checks + '</div>' +
       '</div>';
     }).join('');
 
     updateUnmappedBanner();
-  }
-
-  function radioHtml(unitKey, value, label, checked){
-    return '<label class="map-mode"><input type="radio" name="mode-' + escapeHtml(unitKey) + '" class="map-mode-radio" ' +
-      'data-unit="' + escapeHtml(unitKey) + '" value="' + value + '"' + (checked ? ' checked' : '') + ' /> ' + label + '</label>';
   }
 
   function updateUnmappedBanner(){
@@ -478,8 +509,21 @@
   }
 
   // ---------- Add pages manually (zero-issue pages join the page universe) ----------
-  function platformLabel(choice){ return choice === 'all' ? 'All 3 platforms' : choice; }
-  function platformsForChoice(choice){ return choice === 'all' ? PLATFORMS.slice() : [choice]; }
+  // Manual pages carry the EXACT platform(s) the user selected (multi-select) — never
+  // silently defaulted to Desktop. Selections are normalized to the canonical PLATFORMS
+  // order so the stored platforms + labels are stable regardless of click order.
+  function orderedPlatforms(list){ const s = new Set(list || []); return PLATFORMS.filter(p => s.has(p)); }
+  function platformsLabel(list){
+    const o = orderedPlatforms(list);
+    return o.length === PLATFORMS.length ? 'All 3 platforms' : (o.join(', ') || 'No platform');
+  }
+  // Back-compat: normalize an entry to its platforms array, tolerating an older shape that
+  // stored a single `choice` ('Desktop' | 'RWD Tablet' | 'RWD Mobile' | 'all') instead.
+  function manualEntryPlatforms(e){
+    if (e && e.platforms && e.platforms.length) return orderedPlatforms(e.platforms);
+    if (e && e.choice) return e.choice === 'all' ? PLATFORMS.slice() : [e.choice];
+    return [];
+  }
 
   // Platforms a page is already present on (from CSV presence + earlier manual adds),
   // read from the last-computed model so duplicate checks see the real universe.
@@ -494,41 +538,65 @@
     el.hidden = false; el.textContent = text;
   }
 
-  function showChooser(show){
-    document.getElementById('manualChooser').hidden = !show;
-    if (!show) state.pendingManualName = null;
+  // Reflect the current multi-selection onto the chooser's toggle buttons.
+  function syncChooserButtons(){
+    const chosen = new Set(state.pendingManualPlatforms);
+    document.querySelectorAll('#manualChooser .chooser-opt').forEach(btn => {
+      const on = chosen.has(btn.getAttribute('data-choice'));
+      btn.setAttribute('aria-pressed', String(on));
+      btn.classList.toggle('on', on);
+    });
   }
 
-  // Step 1: validate the name, then ASK for the platform (don't add yet).
+  function showChooser(show){
+    document.getElementById('manualChooser').hidden = !show;
+    if (!show){ state.pendingManualName = null; state.pendingManualPlatforms = []; }
+    syncChooserButtons();
+  }
+
+  // Toggle one platform in the pending multi-selection.
+  function toggleChooserPlatform(choice){
+    if (PLATFORMS.indexOf(choice) < 0) return;
+    const set = new Set(state.pendingManualPlatforms);
+    if (set.has(choice)) set.delete(choice); else set.add(choice);
+    state.pendingManualPlatforms = orderedPlatforms(set);
+    syncChooserButtons();
+    manualMsg('');
+  }
+
+  // Step 1: validate the name, then ASK which platform(s) the page is present on (don't add yet).
   function beginAddPage(){
     const input = document.getElementById('manualPageName');
     const name = (input.value || '').trim();
     manualMsg('');
     if (!name){ manualMsg('Please enter a page name.'); showChooser(false); input.focus(); return; }
     state.pendingManualName = name;
+    state.pendingManualPlatforms = [];
     showChooser(true);
     const first = document.querySelector('#manualChooser .chooser-opt');
     if (first) first.focus();
   }
 
-  // Step 2: a platform was chosen — validate for duplicates, then add.
-  function commitAddPage(choice){
-    const name = state.pendingManualName;
-    if (!name){ showChooser(false); return; }
+  // Step 2: platform(s) selected + "Add page" confirmed — validate, then add. A page cannot
+  // be added without a name AND at least one selected platform.
+  function commitAddPage(){
+    const name = state.pendingManualName || (document.getElementById('manualPageName').value || '').trim();
+    if (!name){ manualMsg('Please enter a page name.'); return; }
+    const chosen = orderedPlatforms(state.pendingManualPlatforms);
+    if (!chosen.length){ manualMsg('Select at least one platform this page is present on.'); return; }
     const key = name.toLowerCase();
-    const chosen = platformsForChoice(choice);
     const present = presenceForPageKey(key);
     const isNew = chosen.filter(p => !present.has(p));
     if (!isNew.length){
-      manualMsg('“' + name + '” is already present on ' + (choice === 'all' ? 'all 3 platforms' : choice) + '. Nothing added.');
+      manualMsg('“' + name + '” is already present on ' + platformsLabel(chosen) + '. Nothing added.');
       return;
     }
-    state.manualPages.push({ id: ++state.manualSeq, name: name, choice: choice, platforms: chosen });
+    state.manualPages.push({ id: ++state.manualSeq, name: name, platforms: chosen });
     document.getElementById('manualPageName').value = '';
     showChooser(false);
     manualMsg('');
     recompute(); // structural: the new page joins the universe + every mapping list
-    announce('Added page ' + name + ' for ' + platformLabel(choice) + '.');
+    announce('Added page ' + name + ' on ' + platformsLabel(chosen) + '.');
   }
 
   function removeManualPage(id){
@@ -542,13 +610,14 @@
   function renderManualPages(){
     document.getElementById('manualCount').textContent = state.manualPages.length + ' added';
     const list = document.getElementById('manualList');
-    list.innerHTML = state.manualPages.map(e =>
-      '<div class="manual-row">' +
+    list.innerHTML = state.manualPages.map(e => {
+      const label = platformsLabel(manualEntryPlatforms(e));
+      return '<div class="manual-row">' +
         '<span class="manual-row-name">' + escapeHtml(e.name) + '</span>' +
-        '<span class="manual-row-plat">' + escapeHtml(platformLabel(e.choice)) + '</span>' +
-        '<button class="btn ghost manual-remove" type="button" data-id="' + e.id + '" aria-label="Remove ' + escapeHtml(e.name) + ' (' + escapeHtml(platformLabel(e.choice)) + ')">Remove</button>' +
-      '</div>'
-    ).join('');
+        '<span class="manual-row-plat">' + escapeHtml(label) + '</span>' +
+        '<button class="btn ghost manual-remove" type="button" data-id="' + e.id + '" aria-label="Remove ' + escapeHtml(e.name) + ' (' + escapeHtml(label) + ')">Remove</button>' +
+      '</div>';
+    }).join('');
   }
 
   function renderPagePresence(){
@@ -1093,34 +1162,58 @@
   // pages". A mapping edit re-runs the model (recompute) but NOT the mapping UI itself
   // (structural=false), so in-progress radios/checkboxes keep their focus and state.
   const mappingList = document.getElementById('mappingList');
+  // Ticking/unticking a page maps the component to exactly the selected pages. The model is
+  // re-run (recompute) but NOT the mapping UI (structural=false), so the in-progress
+  // checkboxes keep focus/scroll; the card's count is refreshed in place.
   mappingList.addEventListener('change', e => {
-    const radio = e.target.closest('.map-mode-radio');
-    if (radio) {
-      const unit = radio.getAttribute('data-unit');
-      const mode = radio.value;
-      const sel = state.sharedMap[unit] || (state.sharedMap[unit] = { mode: 'none', pages: [] });
-      sel.mode = mode;
-      // Show/hide this unit's page checkboxes and enable/disable them in place.
-      const unitEl = radio.closest('.mapping-unit');
-      const pagesEl = unitEl && unitEl.querySelector('.mapping-unit-pages');
-      if (pagesEl) {
-        pagesEl.hidden = mode !== 'pages';
-        pagesEl.querySelectorAll('.map-page-cb').forEach(cb => { cb.disabled = mode !== 'pages'; });
-      }
-      recompute(false);
-      announce(radio.closest('.mapping-unit').querySelector('.unit-name').textContent + ' mapping: ' + radio.parentNode.textContent.trim() + '.');
-      return;
-    }
     const cb = e.target.closest('.map-page-cb');
     if (cb) {
       const unit = cb.getAttribute('data-unit');
       const page = cb.getAttribute('data-page');
-      const sel = state.sharedMap[unit] || (state.sharedMap[unit] = { mode: 'pages', pages: [] });
-      const set = new Set(sel.pages || []);
-      if (cb.checked) set.add(page); else set.delete(page);
-      sel.pages = Array.from(set);
+      const sel = currentUnitSelection(unit); // resolves an "all" mapping to the full list first
+      if (cb.checked) sel.add(page); else sel.delete(page);
+      state.sharedMap[unit] = { mode: 'pages', pages: Array.from(sel) };
       cb.closest('.map-page').classList.toggle('on', cb.checked);
       recompute(false);
+      updateUnitCount(unit);
+      return;
+    }
+  });
+  // Global / Clear / Select matches per component. These re-render the mapping UI
+  // (recompute true) so every checkbox + the count reflect the new selection.
+  mappingList.addEventListener('click', e => {
+    const globalBtn = e.target.closest('.map-global');
+    if (globalBtn) {
+      const unit = globalBtn.getAttribute('data-unit');
+      state.sharedMap[unit] = { mode: 'all', pages: [] };
+      recompute(true);
+      announce('Mapped component to all pages.');
+      return;
+    }
+    const clearBtn = e.target.closest('.map-clear');
+    if (clearBtn) {
+      const unit = clearBtn.getAttribute('data-unit');
+      state.sharedMap[unit] = { mode: 'none', pages: [] };
+      recompute(true);
+      announce('Component mapping cleared.');
+      return;
+    }
+    const smBtn = e.target.closest('.map-selectmatches');
+    if (smBtn) {
+      const unit = smBtn.getAttribute('data-unit');
+      const card = smBtn.closest('.mapping-unit');
+      const ta = card && card.querySelector('.map-filter');
+      const queries = ((ta && ta.value) || '').split(/[\n,]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+      if (!queries.length) return;
+      const sel = currentUnitSelection(unit);
+      let n = 0;
+      mappingRealPages().forEach(pg => {
+        const d = pg.display.toLowerCase();
+        if (queries.some(q => d === q || d.includes(q))) { if (!sel.has(pg.key)) { sel.add(pg.key); n++; } }
+      });
+      state.sharedMap[unit] = { mode: 'pages', pages: Array.from(sel) };
+      recompute(true);
+      announce(n + ' page' + (n === 1 ? '' : 's') + ' selected.');
       return;
     }
   });
@@ -1131,8 +1224,9 @@
     if (e.key === 'Enter'){ e.preventDefault(); beginAddPage(); }
   });
   document.getElementById('chooserCancel').addEventListener('click', () => { showChooser(false); manualMsg(''); });
+  document.getElementById('chooserConfirm').addEventListener('click', commitAddPage);
   document.querySelectorAll('#manualChooser .chooser-opt').forEach(btn => {
-    btn.addEventListener('click', () => commitAddPage(btn.getAttribute('data-choice')));
+    btn.addEventListener('click', () => toggleChooserPlatform(btn.getAttribute('data-choice')));
   });
   document.getElementById('manualList').addEventListener('click', e => {
     const rm = e.target.closest('.manual-remove');
@@ -1266,6 +1360,7 @@
     state.manualPages = [];
     state.manualSeq = 0;
     state.pendingManualName = null;
+    state.pendingManualPlatforms = [];
     state.projectWideExplicit = {};
     state.pwIssueMap = {};
     state.pageCatalog = [];

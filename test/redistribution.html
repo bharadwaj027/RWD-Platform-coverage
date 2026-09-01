@@ -91,6 +91,29 @@
   var mDMManual = build({ manualPages:[{name:'Widget', platforms:['Desktop','RWD Mobile']}], pwIssueMap:{ 'PW-ALL': {mode:'all',pages:[]} } });
   ok(eqArr(scPlatforms(mDMManual,'widget','2.4.7'), ['Desktop','RWD Mobile']), 'All-platforms issue -> Desktop+Mobile manual page = Desktop + RWD Mobile (Tablet excluded, page absent there)');
 
+  // ---- Add Page multi-platform selection: the selected platform(s) are the source of ----
+  // ---- truth for a manually added page (acceptance 1–9; "not Desktop by default"). ----
+  log.push('\nAdd Page multi-platform selection (manual page presence = selected platforms):');
+  function presenceOfManual(platforms){ return page(build({ manualPages:[{name:'P', platforms:platforms}] }), 'p').presence; }
+  ok(eqArr(presenceOfManual(['Desktop']), ['Desktop']), 'Desktop only -> present on Desktop only');
+  ok(eqArr(presenceOfManual(['RWD Mobile']), ['RWD Mobile']), 'RWD Mobile only -> present on RWD Mobile only');
+  ok(eqArr(presenceOfManual(['RWD Tablet']), ['RWD Tablet']), 'RWD Tablet only -> present on RWD Tablet only');
+  ok(eqArr(presenceOfManual(['Desktop','RWD Mobile']), ['Desktop','RWD Mobile']), 'Desktop + RWD Mobile -> both, ordered canonically');
+  ok(eqArr(presenceOfManual(['Desktop','RWD Tablet']), ['Desktop','RWD Tablet']), 'Desktop + RWD Tablet -> both');
+  ok(eqArr(presenceOfManual(['RWD Mobile','RWD Tablet']), ['RWD Tablet','RWD Mobile']), 'RWD Mobile + RWD Tablet -> both, and NOT Desktop');
+  ok(eqArr(presenceOfManual(['Desktop','RWD Tablet','RWD Mobile']), ['Desktop','RWD Tablet','RWD Mobile']), 'All three -> present on all three');
+  ok(presenceOfManual(['RWD Mobile','RWD Tablet']).indexOf('Desktop') < 0, 'RWD Mobile + RWD Tablet page is never treated as Desktop');
+  // Selection order does not change the stored (canonical-ordered) presence.
+  ok(eqArr(presenceOfManual(['RWD Mobile','Desktop','RWD Tablet']), ['Desktop','RWD Tablet','RWD Mobile']), 'click order irrelevant -> presence normalized to canonical order');
+
+  // ---- Persistence through component mapping: a Login page added on RWD Mobile + RWD ----
+  // ---- Tablet keeps exactly those platforms when a shared component maps onto it. ----
+  log.push('\nManual page platform persistence through component mapping (acceptance 8):');
+  var mLogin = build({ manualPages:[{name:'Login', platforms:['RWD Mobile','RWD Tablet']}], sharedMap:{ 'component:footer': {mode:'all',pages:[]} } });
+  ok(eqArr(page(mLogin,'login').presence, ['RWD Tablet','RWD Mobile']), 'Login (RWD Mobile + RWD Tablet) retains both platforms after mapping');
+  ok(eqArr(scPlatforms(mLogin,'login','4.1.3'), ['RWD Tablet','RWD Mobile']), 'All-platforms component -> Login stays RWD Tablet + RWD Mobile (Desktop NOT added)');
+  ok(scPlatforms(mLogin,'login','4.1.3').indexOf('Desktop') < 0, 'component mapping never expands Login onto Desktop');
+
   // ---- Same logic for COMPONENTS (acceptance 6, 7, 12) ----
   log.push('\nComponent platform association (acceptance 6, 7, 12):');
   var cAll = build({ sharedMap:{ 'component:footer': {mode:'all',pages:[]} } });

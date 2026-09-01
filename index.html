@@ -96,10 +96,12 @@
       </div>
       <div class="manual-chooser" id="manualChooser" hidden role="group" aria-labelledby="chooserQ">
         <span class="chooser-q" id="chooserQ">Which platform is this page present on?</span>
-        <button class="btn ghost chooser-opt" type="button" data-choice="Desktop">Desktop</button>
-        <button class="btn ghost chooser-opt" type="button" data-choice="RWD Tablet">RWD Tablet</button>
-        <button class="btn ghost chooser-opt" type="button" data-choice="RWD Mobile">RWD Mobile</button>
-        <button class="btn ghost chooser-opt" type="button" data-choice="all">All 3 platforms</button>
+        <div class="chooser-opts" role="group" aria-label="Platforms this page is present on (select one or more)">
+          <button class="btn ghost chooser-opt" type="button" data-choice="Desktop" aria-pressed="false">Desktop</button>
+          <button class="btn ghost chooser-opt" type="button" data-choice="RWD Mobile" aria-pressed="false">RWD Mobile</button>
+          <button class="btn ghost chooser-opt" type="button" data-choice="RWD Tablet" aria-pressed="false">RWD Tablet</button>
+        </div>
+        <button class="btn primary chooser-confirm" type="button" id="chooserConfirm">Add page</button>
         <button class="btn ghost chooser-cancel" type="button" id="chooserCancel">Cancel</button>
       </div>
       <div class="manual-msg" id="manualMsg" hidden role="alert"></div>
