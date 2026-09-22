@@ -187,7 +187,8 @@
     includeClosed: false, // when false, "Closed" issues are ignored everywhere
     levelCollapsed: { A: false, AA: false, Other: false }, // WCAG level sections; false = expanded
     sectionCollapsed: { pagePresence: true, manual: true, mapping: true, projectWide: true },
-    expanded: new Set() // sc-group keys with page drill-down open
+    expanded: new Set(), // sc-group keys with page drill-down open
+    pagesExpanded: new Set() // sc-group keys with the affected-pages table open
   };
 
   // WCAG conformance level per Success Criterion (2.0 / 2.1 / 2.2, Levels A & AA).
@@ -912,8 +913,14 @@
 
   function pagesTableHtml(group, q){
     const pgs = visiblePagesFor(group, q);
+    const isPagesExpanded = state.pagesExpanded.has(group.key);
+    const panelHead = '<div class="cp-panel-head">' +
+      '<p class="cp-panel-label">' + pgs.length + ' page' + (pgs.length === 1 ? '' : 's') + ' affected by this success criterion</p>' +
+      '<button class="btn ghost panel-collapse-btn" type="button" data-group-key="' + escapeHtml(group.key) + '" aria-expanded="' + isPagesExpanded + '" aria-label="' + (isPagesExpanded ? 'Collapse' : 'Expand') + ' pages for success criterion ' + escapeHtml(group.sc || '') + '">' + (isPagesExpanded ? 'Collapse' : 'Expand') + '</button>' +
+      '</div>';
+    if (!isPagesExpanded) return panelHead;
     if (!pgs.length) {
-      return '<p class="cp-panel-label">No pages match this filter for this success criterion.</p>';
+      return panelHead + '<p class="cp-panel-label">No pages match this filter for this success criterion.</p>';
     }
     const body = pgs.map(p => {
       const nameCell = escapeHtml(p.display) +
@@ -932,11 +939,10 @@
         '</tr>';
     }).join('');
 
-    return '<p class="cp-panel-label">' + pgs.length + ' page' + (pgs.length === 1 ? '' : 's') + ' affected by this success criterion</p>' +
+    return panelHead +
       '<table class="checkpoint-table">' +
       '<thead><tr><th>Page</th><th class="col-platform">Desktop</th><th class="col-platform">RWD Tablet</th><th class="col-platform">RWD Mobile</th><th class="col-coverage">Coverage</th><th class="col-issues">Issues</th></tr></thead>' +
-      '<tbody>' + body + '</tbody></table>' +
-      vpatBlocksHtml(group);
+      '<tbody>' + body + '</tbody></table>';
   }
 
   // All of this SC's VPAT remarks in ONE paste-ready field with a single Copy button:
@@ -966,7 +972,7 @@
       (group.checkpointLabels.length > 1 ? '<span class="cp-count-flag" title="' + escapeHtml(group.checkpointLabels.join(' / ')) + '">' + group.checkpointLabels.length + ' checkpoints</span>' : '') +
       (group.group ? '<span class="sc-group-sub">' + escapeHtml(group.group) + '</span>' : '');
 
-    const isExpanded = q ? true : state.expanded.has(group.key);
+    const isExpanded = state.expanded.has(group.key);
 
     const mainRow = '<tr>' +
       '<td class="col-expand"><button class="expand-btn" data-group-key="' + escapeHtml(group.key) + '" aria-expanded="' + isExpanded + '" aria-label="' + (isExpanded ? 'Collapse' : 'Expand') + ' pages for success criterion ' + escapeHtml(group.sc || '') + '"><svg viewBox="0 0 10 10" fill="currentColor"><path d="M2 0 L8 5 L2 10 Z"/></svg></button></td>' +
@@ -979,7 +985,7 @@
       '</tr>';
 
     const pageRow = isExpanded
-      ? '<tr class="row-checkpoints"><td colspan="7">' + pagesTableHtml(group, q) + '</td></tr>'
+      ? '<tr class="row-checkpoints"><td colspan="7">' + pagesTableHtml(group, q) + vpatBlocksHtml(group) + '</td></tr>'
       : '';
 
     return mainRow + pageRow;
@@ -1403,22 +1409,35 @@
       announce(LEVEL_LABEL[lvl] + (state.levelCollapsed[lvl] ? ' collapsed.' : ' expanded.'));
       return;
     }
+    const panelCollapseBtn = e.target.closest('.panel-collapse-btn');
+    if (panelCollapseBtn) {
+      const key = panelCollapseBtn.getAttribute('data-group-key');
+      if (state.pagesExpanded.has(key)) state.pagesExpanded.delete(key);
+      else state.pagesExpanded.add(key);
+      renderTable();
+      return;
+    }
     const btn = e.target.closest('.expand-btn');
     if (!btn) return;
     const key = btn.getAttribute('data-group-key');
-    if (state.expanded.has(key)) state.expanded.delete(key);
-    else state.expanded.add(key);
+    if (state.expanded.has(key)) {
+      state.expanded.delete(key);
+      state.pagesExpanded.delete(key);
+    } else {
+      state.expanded.add(key);
+    }
     renderTable();
   });
 
   document.getElementById('expandAllBtn').addEventListener('click', () => {
-    state.scGroups.forEach(g => state.expanded.add(g.key));
+    state.scGroups.forEach(g => { state.expanded.add(g.key); state.pagesExpanded.add(g.key); });
     renderTable();
     announce('All success criteria expanded.');
   });
 
   document.getElementById('collapseAllBtn').addEventListener('click', () => {
     state.expanded.clear();
+    state.pagesExpanded.clear();
     state.sectionCollapsed = { pagePresence: true, manual: true, mapping: true, projectWide: true };
     renderTable();
     announce('All success criteria collapsed.');
@@ -1443,6 +1462,7 @@
     resetChooser();
     document.getElementById('pwWrap').hidden = true;
     state.expanded.clear();
+    state.pagesExpanded.clear();
     state.includeClosed = false;
     state.levelCollapsed = { A: false, AA: false, Other: false };
     document.getElementById('includeClosed').checked = false;
