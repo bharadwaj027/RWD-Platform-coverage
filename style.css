@@ -331,6 +331,9 @@
   tr.row-checkpoints{ background:var(--paper); }
   tr.row-checkpoints:hover{ background:var(--paper); }
   tr.row-checkpoints > td{ padding:4px 12px 14px 40px; }
+  .cp-panel-head{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .cp-panel-head .cp-panel-label{ margin-right:auto; }
+  .panel-collapse-btn{ flex:0 0 auto; padding:5px 10px; font-size:11px; }
 
   .cp-panel-label{
     font-family:'IBM Plex Mono', monospace; font-size:10.5px;
