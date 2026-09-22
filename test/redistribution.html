@@ -169,6 +169,61 @@
   var mUnmark = build({ pwExplicit:{ 'project wide': false } });
   ok(mUnmark.realPageKeys.indexOf('project wide') >= 0 && mUnmark.pwSections.length === 0, 'unmarking Project Wide returns it as a real page, no sections');
 
+  // ============================================================================
+  // VPAT TEXT GENERATION & VALIDATION
+  // ============================================================================
+  var VL = { 'Desktop':'Desktop', 'RWD Tablet':'Responsive Web Design Tablet', 'RWD Mobile':'Responsive Web Design Mobile' };
+  var PREFIX = '[Action Required: Change to Human-Centered VPAT Text] ';
+  function ruleG(m,rid){ return m.ruleGroups.find(function(rg){return rg.ruleId===rid;}); }
+
+  // ---- Req 1: missing VPAT prose falls back to the Summary with the action prefix ----
+  log.push('\nVPAT missing-prose fallback (req 1 — Summary used when no VPAT text):');
+  var mSum = build();
+  ok(ruleG(mSum,'img-alt') && ruleG(mSum,'img-alt').summary === 'Hero image has no alt', 'ruleGroup carries the Summary body (no prefix present)');
+  var mComp = build({ sharedMap:{ 'component:footer': {mode:'all',pages:[]} } });
+  ok(ruleG(mComp,'status-message') && ruleG(mComp,'status-message').summary === 'status message', 'leading platform prefix stripped from the Summary body');
+  var noProse = { hasProse:false, summary:'Hero image has no alt', pages:[{display:'Home', platforms:new Set(['Desktop'])}] };
+  var rNo = VPATFormat.vpatRemark(noProse, CONFIG.platforms, VL);
+  ok(rNo.indexOf(PREFIX) === 0, 'missing-prose remark begins with the exact action prefix');
+  ok(rNo.indexOf('Hero image has no alt') > 0, 'missing-prose remark contains the Summary text');
+  ok(rNo.indexOf('This occurs on the following page: Home (Desktop).') > 0, 'missing-prose remark still lists the affected page');
+  var withProse = { hasProse:true, one:'Alt text is missing.', multiple:'Alt text is missing.', summary:'IGNORED', pages:[{display:'Home', platforms:new Set(['Desktop'])}] };
+  var rYes = VPATFormat.vpatRemark(withProse, CONFIG.platforms, VL);
+  ok(rYes.indexOf(PREFIX) < 0 && rYes.indexOf('Alt text is missing.') === 0, 'existing VPAT prose is used unchanged (no prefix, summary ignored)');
+  var noBoth = { hasProse:false, summary:'', pages:[{display:'Home', platforms:new Set(['Desktop'])}] };
+  ok(VPATFormat.vpatRemark(noBoth, CONFIG.platforms, VL) === 'Home (Desktop).', 'no prose AND no summary -> page list only (prior behaviour preserved)');
+
+  // ---- Req 3: RWD Mobile + RWD Tablet only is included in VPAT, never dropped/Desktop-ised ----
+  log.push('\nVPAT platform combinations (req 3 — no Desktop assumption):');
+  function remarkFor(plats){ return VPATFormat.vpatRemark({ hasProse:false, summary:'x', pages:[{display:'P', platforms:new Set(plats)}] }, CONFIG.platforms, VL); }
+  ok(remarkFor(['Desktop']).indexOf('P (Desktop).') > 0, 'Desktop only -> generated normally');
+  ok(remarkFor(['RWD Mobile']).indexOf('P (Responsive Web Design Mobile).') > 0, 'RWD Mobile only -> generated normally');
+  ok(remarkFor(['RWD Tablet']).indexOf('P (Responsive Web Design Tablet).') > 0, 'RWD Tablet only -> generated normally');
+  ok(remarkFor(['Desktop','RWD Mobile']).indexOf('P (Desktop, Responsive Web Design Mobile).') > 0, 'Desktop + RWD Mobile -> generated normally');
+  ok(remarkFor(['Desktop','RWD Tablet']).indexOf('P (Desktop, Responsive Web Design Tablet).') > 0, 'Desktop + RWD Tablet -> generated normally');
+  var rwdBoth = remarkFor(['RWD Tablet','RWD Mobile']);
+  ok(rwdBoth.indexOf('P (Responsive Web Design Tablet, Responsive Web Design Mobile).') > 0, 'RWD Mobile + RWD Tablet only -> INCLUDED with both platforms');
+  ok(rwdBoth.indexOf('(Desktop') < 0, 'RWD Mobile + RWD Tablet only -> never claims Desktop');
+  ok(remarkFor(['Desktop','RWD Tablet','RWD Mobile']).indexOf('P (Desktop, Responsive Web Design Tablet, Responsive Web Design Mobile).') > 0, 'all three platforms -> generated normally');
+  // end-to-end: an RWD-only component mapped to a page keeps its rule group in the VPAT output
+  var mRwdComp = build({ sharedMap:{ 'component:header': {mode:'pages',pages:['home']} } });
+  var rgH = ruleG(mRwdComp,'control-name-inaccessible');
+  ok(rgH && rgH.pages.length === 1 && eqArr(Array.from(rgH.pages[0].platforms), ['RWD Tablet','RWD Mobile']), 'RWD-only component rule group present with Tablet+Mobile (issue kept in VPAT)');
+
+  // ---- Req 2: duplicate detection operates on the FINAL VPAT text value ----
+  log.push('\nDuplicate VPAT text detection (req 2 — final value):');
+  function dupSet(remarks){ var c={}; remarks.forEach(function(t){c[t]=(c[t]||0)+1;}); var s={}; Object.keys(c).forEach(function(t){ if(c[t]>1) s[t]=true; }); return s; }
+  var A = VPATFormat.vpatRemark({hasProse:true, one:'Keyboard works.', multiple:'Keyboard works.', pages:[{display:'Home', platforms:new Set(['Desktop'])}]}, CONFIG.platforms, VL);
+  var B = VPATFormat.vpatRemark({hasProse:true, one:'Keyboard works.', multiple:'Keyboard works.', pages:[{display:'Home', platforms:new Set(['Desktop'])}]}, CONFIG.platforms, VL);
+  var Cc = VPATFormat.vpatRemark({hasProse:true, one:'Color contrast fails.', multiple:'Color contrast fails.', pages:[{display:'Home', platforms:new Set(['Desktop'])}]}, CONFIG.platforms, VL);
+  var dset = dupSet([A,B,Cc]);
+  ok(A===B && dset[A]===true, 'identical final VPAT text flagged (every occurrence)');
+  ok(!dset[Cc], 'different VPAT text NOT flagged as duplicate');
+  // same prose but different page list -> different final value -> not a duplicate
+  var D1 = VPATFormat.vpatRemark({hasProse:true, one:'X.', multiple:'X.', pages:[{display:'Home', platforms:new Set(['Desktop'])}]}, CONFIG.platforms, VL);
+  var D2 = VPATFormat.vpatRemark({hasProse:true, one:'X.', multiple:'X.', pages:[{display:'Contact', platforms:new Set(['Desktop'])}]}, CONFIG.platforms, VL);
+  ok(!dupSet([D1,D2])[D1], 'same prose but different pages -> different final value -> not duplicate');
+
   var v=document.getElementById('verdict');
   if(fail){ v.className='verdict fail'; v.textContent='FAILED — '+fail+' of '+checks+' checks failed'; }
   else { v.className='verdict pass'; v.textContent='PASSED — all '+checks+' checks'; }

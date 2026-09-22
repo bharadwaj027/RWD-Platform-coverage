@@ -41,10 +41,22 @@
   // sentence already contains a "following page(s):" clause, the pages are appended
   // straight after it (no duplicate clause). With no prose, only the page list is emitted
   // (the tool never invents wording).
+  // When a summary has no VPAT-Generator prose, the summary itself is used as the VPAT
+  // text, flagged with this exact prefix so a human rewrites it into human-centered wording.
+  var ACTION_PREFIX = '[Action Required: Change to Human-Centered VPAT Text] ';
+
   function vpatRemark(m, platforms, vpatLabels) {
     var pageList = vpatPageList(m.pages, platforms, vpatLabels);
-    if (!m.hasProse) return pageList;
-    var prose = (m.pages.length === 1 ? m.one : m.multiple) || m.one || m.multiple;
+    var prose;
+    if (m.hasProse) {
+      prose = (m.pages.length === 1 ? m.one : m.multiple) || m.one || m.multiple;
+    } else {
+      // No prose for this summary: fall back to the Summary text with the action prefix.
+      // If even the summary is missing, keep the prior behaviour (page list only).
+      var summary = (m.summary || '').replace(/\s+/g, ' ').trim();
+      if (!summary) return pageList;
+      prose = ACTION_PREFIX + summary;
+    }
     if (!prose) return pageList;
     prose = prose.replace(/\s+$/, ''); // strip only trailing whitespace before the clause
     if (/following page/i.test(prose)) return prose + ' ' + pageList;

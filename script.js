@@ -113,17 +113,41 @@
 
   fetch('./config.json')
     .then(res => (res.ok ? res.json() : null))
-    .then(cfg => { if (cfg && cfg.platforms) applyConfig(cfg); })
+    .then(cfg => {
+      if (cfg && cfg.platforms) {
+        applyConfig(cfg);
+        if (state.pages.length) {
+          state.vpatDuplicates = computeVpatDuplicates();
+          render();
+        }
+      }
+    })
     .catch(() => { /* keep DEFAULT_CONFIG */ });
 
   fetch('./bulleted_vpat_text.json')
     .then(res => (res.ok ? res.json() : null))
-    .then(rows => { if (rows) { VPAT_LOOKUP = buildVpatLookup(rows); if (state.pages.length) render(); } })
+    .then(rows => {
+      if (rows) {
+        VPAT_LOOKUP = buildVpatLookup(rows);
+        if (state.pages.length) {
+          state.vpatDuplicates = computeVpatDuplicates();
+          render();
+        }
+      }
+    })
     .catch(() => { /* keep empty VPAT_LOOKUP — page list still generated */ });
 
   fetch('./issue-descriptions.json')
     .then(res => (res.ok ? res.json() : null))
-    .then(rows => { if (rows) { ISSUE_DESC = buildIssueDesc(rows); if (state.pages.length) render(); } })
+    .then(rows => {
+      if (rows) {
+        ISSUE_DESC = buildIssueDesc(rows);
+        if (state.pages.length) {
+          state.vpatDuplicates = computeVpatDuplicates();
+          render();
+        }
+      }
+    })
     .catch(() => { /* supporting source only */ });
 
   // DOM wiring only — which upload zone maps to which element ids. The platform each
@@ -156,6 +180,7 @@
     pageCatalog: [],            // every candidate page (real + project-wide + manual) for the mark grid
     projectWideKeys: [],        // currently-marked project-wide page keys
     pwSections: [],             // project-wide issues grouped into platform sections
+    vpatDuplicates: new Set(),  // final VPAT remark strings that occur more than once (flagged "Duplicate")
     sort: { key: 'sc', dir: 'asc' },
     search: '',
     tier: 'all',
@@ -294,8 +319,30 @@
       state.rulesBySc.get(k).push(rg);
     });
 
+    // Duplicate VPAT text: the set of final remark strings that occur more than once across
+    // the whole generated output (every SC panel + the bulk export). Computed on the final
+    // displayed value so identical wording is flagged everywhere it appears.
+    state.vpatDuplicates = computeVpatDuplicates();
+
     if (structural !== false) renderMapping();
     render();
+  }
+
+  // Count every generated VPAT remark across all SCs; return the set of remark strings that
+  // appear more than once (each such occurrence gets a "Duplicate" indicator when rendered).
+  function computeVpatDuplicates(){
+    const counts = new Map();
+    if (state.rulesBySc) {
+      state.rulesBySc.forEach(rules => {
+        mergeRulesByText(rules).forEach(m => {
+          const t = vpatRemark(m);
+          counts.set(t, (counts.get(t) || 0) + 1);
+        });
+      });
+    }
+    const dup = new Set();
+    counts.forEach((n, t) => { if (n > 1) dup.add(t); });
+    return dup;
   }
 
   function buildScGroups(pages){
@@ -388,10 +435,12 @@
         ? ('t\x01' + normText(entry.one) + '\x01' + normText(entry.multiple))
         : ('r\x01' + (rg.ruleId || rg.checkpoint));
       if (!map.has(textKey)) {
-        map.set(textKey, { one: entry && entry.one, multiple: entry && entry.multiple, hasProse: hasProse, pages: new Map() });
+        map.set(textKey, { one: entry && entry.one, multiple: entry && entry.multiple, hasProse: hasProse, summary: rg.summary || '', pages: new Map() });
         order.push(textKey);
       }
       const m = map.get(textKey);
+      // For prose-less rules, keep the first non-empty Summary as the VPAT fallback text.
+      if (!m.summary && rg.summary) m.summary = rg.summary;
       rg.pages.forEach(pg => {
         if (!m.pages.has(pg.key)) m.pages.set(pg.key, { display: pg.display, platforms: new Set(pg.platforms) });
         else { const ex = m.pages.get(pg.key); pg.platforms.forEach(p => ex.platforms.add(p)); }
@@ -399,13 +448,19 @@
     });
     return order.map(k => {
       const m = map.get(k);
-      return { one: m.one, multiple: m.multiple, hasProse: m.hasProse, pages: Array.from(m.pages.values()) };
+      return { one: m.one, multiple: m.multiple, hasProse: m.hasProse, summary: m.summary, pages: Array.from(m.pages.values()) };
     });
   }
 
   // Delegate the actual VPAT sentence assembly to the shared module (see vpat-format.js).
   function vpatRemark(m){
     return VPATFormat.vpatRemark(m, PLATFORMS, CONFIG.vpatLabels);
+  }
+
+  function vpatDisplayHtml(text){
+    const escaped = escapeHtml(text);
+    const prefix = escapeHtml('[Action Required: Change to Human-Centered VPAT Text]');
+    return escaped.replace(prefix, '<span class="vpat-action-required">' + prefix + '</span>');
   }
 
   // ---------- Shared-unit mapping UI (Section: components + project-wide pages) ----------
@@ -890,7 +945,13 @@
   function vpatBlocksHtml(group){
     const rules = (state.rulesBySc && state.rulesBySc.get(group.key)) || [];
     if (!rules.length) return '';
-    const items = mergeRulesByText(rules).map(m => '<li>' + escapeHtml(vpatRemark(m)) + '</li>').join('');
+    const items = mergeRulesByText(rules).map(m => {
+      const text = vpatRemark(m);
+      const isDup = state.vpatDuplicates && state.vpatDuplicates.has(text);
+      // Duplicate VPAT text is highlighted and gets a "Duplicate" indicator appended to
+      // every occurrence (not just the second), per the final displayed value.
+      return '<li' + (isDup ? ' class="vpat-dup"' : '') + '>' + vpatDisplayHtml(isDup ? text + ' Duplicate' : text) + '</li>';
+    }).join('');
     return '<div class="vpat-section">' +
       '<div class="vpat-block-head">' +
       '<span class="vpat-block-title">VPAT text</span>' +
@@ -1103,7 +1164,11 @@
     let count = 0;
     state.rulesBySc.forEach(rules => {
       parts.push('SC ' + (rules[0].sc || '—'));
-      mergeRulesByText(rules).forEach(m => { parts.push('• ' + vpatRemark(m)); count++; });
+      mergeRulesByText(rules).forEach(m => {
+        const text = vpatRemark(m);
+        const flagged = (state.vpatDuplicates && state.vpatDuplicates.has(text)) ? text + ' Duplicate' : text;
+        parts.push('• ' + flagged); count++;
+      });
       parts.push('');
     });
     downloadBlob(parts.join('\n'), 'rwd-vpat-text.txt', 'text/plain;charset=utf-8;');
