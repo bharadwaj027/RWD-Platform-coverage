@@ -371,6 +371,15 @@
     font-family:Arial, Helvetica, sans-serif; font-size:11pt; line-height:1.5; color:var(--ink);
   }
   .vpat-text li{ margin:0; }
+  .vpat-action-required{ color:var(--rust); font-weight:700; }
+  /* Duplicate VPAT text — flagged so reviewers can spot repeated remarks at a glance. */
+  .vpat-text li.vpat-dup{
+    background:var(--rust-bg);
+    box-shadow:inset 3px 0 0 var(--rust);
+    border-radius:4px;
+    padding:2px 8px;
+    margin:2px 0;
+  }
 
   .cp-name{ font-weight:600; color:var(--ink); font-size:13px; }
   .sc-tag{

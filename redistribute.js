@@ -119,6 +119,12 @@
       var toks = m ? m[1].split(',').map(normalizeToken) : [def];
       return toks.filter(function (t) { return PLATFORMS.indexOf(t) >= 0; });
     }
+    // The human-readable summary body with the leading platform prefix stripped
+    // ("Desktop, RWD Tablet - foo" -> "foo"). Used as the VPAT fallback text when a rule
+    // has no VPAT-Generator prose (see script.js / vpat-format.js).
+    function summaryBody(summary) {
+      return String(summary || '').replace(PREFIX_RE, '').replace(/\s+/g, ' ').trim();
+    }
 
     var pagesMap = new Map();     // real (non-project-wide) pages
     var rulesMap = new Map();     // real rules (VPAT)
@@ -146,9 +152,11 @@
       return container.get(cpKey);
     }
     function ensureRule(ruleKey, ruleId, sc, cpLabel) {
-      if (!rulesMap.has(ruleKey)) rulesMap.set(ruleKey, { ruleId: ruleId, sc: sc, checkpoint: cpLabel, pages: new Map() });
+      if (!rulesMap.has(ruleKey)) rulesMap.set(ruleKey, { ruleId: ruleId, sc: sc, checkpoint: cpLabel, summary: '', pages: new Map() });
       return rulesMap.get(ruleKey);
     }
+    // Record a representative (prefix-stripped) summary for a rule, first non-empty wins.
+    function noteRuleSummary(rg, s) { if (rg && !rg.summary && s) rg.summary = s; }
 
     // ---- Pass 1: read rows. Components accumulate now; page rows buffer for pass 2. ----
     SOURCE_KEYS.forEach(function (srcKey) {
@@ -173,6 +181,7 @@
         var group = (row[COLS.checkpointGroup] || '').toString().trim();
         var ruleId = (row[COLS.ruleId] || '').toString().trim();
         var ruleKey = ruleId ? 'rid:' + ruleId.toLowerCase() : 'cp:' + cpKey;
+        var summaryStripped = summaryBody(row[COLS.summary]);
 
         if (isComponent) {
           var uKey = unitKeyFor('component', pageRaw);
@@ -182,8 +191,9 @@
           var ucp = ensureCheckpoint(u.checkpoints, cpKey, cpLabel, sc, group);
           ucp.totalRows += 1;
           tokens.forEach(function (t) { u.platforms.add(t); ucp.platforms.add(t); ucp.counts[t] += 1; });
-          if (!u.rules.has(ruleKey)) u.rules.set(ruleKey, { ruleId: ruleId, sc: sc, checkpoint: cpLabel, platforms: new Set() });
+          if (!u.rules.has(ruleKey)) u.rules.set(ruleKey, { ruleId: ruleId, sc: sc, checkpoint: cpLabel, summary: '', platforms: new Set() });
           var urule = u.rules.get(ruleKey);
+          if (!urule.summary && summaryStripped) urule.summary = summaryStripped;
           tokens.forEach(function (t) { urule.platforms.add(t); });
           return;
         }
@@ -198,7 +208,7 @@
         pageBuffer.push({
           key: key, display: pageRaw, srcDefault: defaultPlatform, tokens: tokens,
           cpLabel: cpLabel, cpKey: cpKey, sc: sc, group: group, ruleId: ruleId, ruleKey: ruleKey,
-          id: idRaw, impact: impact, desc: desc
+          id: idRaw, impact: impact, desc: desc, summary: summaryStripped
         });
       });
     });
@@ -235,7 +245,7 @@
         pwIssues.push({
           id: id, page: b.display, pageKey: b.key, impact: b.impact, sc: b.sc, desc: b.desc,
           platforms: b.tokens.slice(), cpLabel: b.cpLabel, cpKey: b.cpKey, group: b.group,
-          ruleId: b.ruleId, ruleKey: b.ruleKey
+          ruleId: b.ruleId, ruleKey: b.ruleKey, summary: b.summary
         });
         return;
       }
@@ -249,6 +259,7 @@
       cp.totalRows += 1;
       b.tokens.forEach(function (t) { cp.platforms.add(t); cp.counts[t] += 1; });
       var rg = ensureRule(b.ruleKey, b.ruleId, b.sc, b.cpLabel);
+      noteRuleSummary(rg, b.summary);
       if (!rg.pages.has(b.key)) rg.pages.set(b.key, { display: b.display, platforms: new Set() });
       var rgp = rg.pages.get(b.key);
       b.tokens.forEach(function (t) { rgp.platforms.add(t); });
@@ -272,7 +283,7 @@
       return PLATFORMS.filter(function (t) { return platformSet.has(t) && page.presence.has(t); });
     }
     // A single (sc/checkpoint, platforms) failure onto one page, credited to `source`.
-    function applyFailure(pageKey, cpKey, cpLabel, sc, group, ruleKey, ruleId, platformSet, source) {
+    function applyFailure(pageKey, cpKey, cpLabel, sc, group, ruleKey, ruleId, platformSet, source, summary) {
       var p = pagesMap.get(pageKey);
       if (!p) return false;
       var keep = surviving(platformSet, p);
@@ -283,6 +294,7 @@
       keep.forEach(function (t) { cp.platforms.add(t); p.platforms.add(t); cp.counts[t] += 1; p.counts[t] += 1; });
       p.redistributedFrom.add(source);
       var rg = ensureRule(ruleKey, ruleId, sc, cpLabel);
+      noteRuleSummary(rg, summary);
       if (!rg.pages.has(pageKey)) rg.pages.set(pageKey, { display: p.display, platforms: new Set() });
       var rgp = rg.pages.get(pageKey);
       keep.forEach(function (t) { rgp.platforms.add(t); });
@@ -311,6 +323,7 @@
           var keep = surviving(ur.platforms, p);
           if (!keep.length) return;
           var rg = ensureRule(ruleKey, ur.ruleId, ur.sc, ur.checkpoint);
+          noteRuleSummary(rg, ur.summary);
           if (!rg.pages.has(tk)) rg.pages.set(tk, { display: p.display, platforms: new Set() });
           var rgp = rg.pages.get(tk);
           keep.forEach(function (t) { rgp.platforms.add(t); });
@@ -353,7 +366,7 @@
         : sel.mode === 'pages' ? (sel.pages || []).filter(function (k) { return applicableSet.has(k); })
         : [];
       var platSet = new Set(iss.platforms);
-      targets.forEach(function (tk) { applyFailure(tk, iss.cpKey, iss.cpLabel, iss.sc, iss.group, iss.ruleKey, iss.ruleId, platSet, iss.page); });
+      targets.forEach(function (tk) { applyFailure(tk, iss.cpKey, iss.cpLabel, iss.sc, iss.group, iss.ruleKey, iss.ruleId, platSet, iss.page, iss.summary); });
 
       sec.issues.push({
         id: iss.id, page: iss.page, impact: iss.impact, sc: iss.sc, desc: iss.desc,
@@ -388,7 +401,7 @@
 
     var ruleGroups = Array.from(rulesMap.values())
       .map(function (rg) {
-        return { ruleId: rg.ruleId, sc: rg.sc, checkpoint: rg.checkpoint,
+        return { ruleId: rg.ruleId, sc: rg.sc, checkpoint: rg.checkpoint, summary: rg.summary,
           pages: Array.from(rg.pages, function (kv) { return { key: kv[0], display: kv[1].display, platforms: kv[1].platforms }; }) };
       })
       .sort(function (a, b) { return compareSC(a.sc, b.sc) || a.checkpoint.localeCompare(b.checkpoint); });
