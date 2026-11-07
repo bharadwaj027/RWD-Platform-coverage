@@ -86,9 +86,11 @@
   //     config: CONFIG (platforms, columns, sourceDefaults, siteWidePageName, ...),
   //     includeClosed: bool,
   //     sharedMap: { [componentKey]: { mode:'all'|'pages'|'none', pages:[pageKey,...] } },
-  //     manualPages: [ { name, platforms:['Desktop', ...] } ],
+  //     manualPages: [ { name, platforms:['Desktop', ...], isComponent:bool } ],
   //     pwExplicit: { [pageKey]: bool },              // user overrides of the auto project-wide marking
-  //     pwIssueMap: { [issueId]: { mode:'all'|'pages'|'none', pages:[pageKey,...] } }
+  //     pwIssueMap: { [issueId]: { mode:'all'|'pages'|'none', pages:[pageKey,...] } },
+  //     componentsAsPages: bool  // true = components are ordinary pages (no mapping step): they
+  //                              // appear under their own name with their own issue platforms
   //   }
   function build(opts) {
     opts = opts || {};
@@ -105,6 +107,7 @@
     var manualPages = opts.manualPages || [];
     var pwExplicit = opts.pwExplicit || {};
     var pwIssueMap = opts.pwIssueMap || {};
+    var componentsAsPages = !!opts.componentsAsPages;
 
     // Platform AVAILABILITY of a page ("which platforms does this page exist on?") is kept
     // separate from issue APPLICABILITY ("which platforms does this issue occur on?"). A
@@ -173,7 +176,8 @@
         if (!pageRaw) return;
         var key = pageRaw.toLowerCase();
         var unitTypeRaw = (COLS.unitType && row[COLS.unitType] != null) ? String(row[COLS.unitType]) : '';
-        var isComponent = /component/i.test(unitTypeRaw);
+        var isComponentUnit = /component/i.test(unitTypeRaw);
+        var isComponent = isComponentUnit && !componentsAsPages;
         var tokens = platformsOf(row[COLS.summary], defaultPlatform);
         var cpLabel = (row[COLS.checkpoint] || row[COLS.successCriteria] || 'Unspecified checkpoint').toString().trim();
         var cpKey = cpLabel.toLowerCase();
@@ -201,6 +205,7 @@
         // page-type row -> catalog + buffer
         var cat = ensureCatalog(key, pageRaw);
         cat.presence.add(defaultPlatform);
+        if (isComponentUnit) cat.isComponent = true;
         var idRaw = (COLS.issueId && row[COLS.issueId] != null) ? String(row[COLS.issueId]).trim() : '';
         var impact = (COLS.impact && row[COLS.impact] != null) ? String(row[COLS.impact]).trim() : '';
         var desc = (COLS.description && row[COLS.description] != null) ? String(row[COLS.description]).trim() : '';
@@ -208,7 +213,7 @@
         pageBuffer.push({
           key: key, display: pageRaw, srcDefault: defaultPlatform, tokens: tokens,
           cpLabel: cpLabel, cpKey: cpKey, sc: sc, group: group, ruleId: ruleId, ruleKey: ruleKey,
-          id: idRaw, impact: impact, desc: desc, summary: summaryStripped
+          id: idRaw, impact: impact, desc: desc, summary: summaryStripped, isComponent: isComponentUnit
         });
       });
     });
@@ -219,6 +224,7 @@
       if (!name) return;
       var cat = ensureCatalog(name.toLowerCase(), name);
       cat.isManual = true;
+      if (mp.isComponent) cat.isComponent = true;
       (mp.platforms || []).forEach(function (t) { if (PLATFORMS.indexOf(t) >= 0) cat.presence.add(t); });
     });
 
@@ -230,7 +236,7 @@
       var selected = Object.prototype.hasOwnProperty.call(pwExplicit, key) ? !!pwExplicit[key] : auto;
       if (selected) pwSet.add(key);
       pageCatalog.push({
-        key: key, display: cat.display, isManual: cat.isManual, auto: auto, selected: selected,
+        key: key, display: cat.display, isManual: cat.isManual, isComponent: !!cat.isComponent, auto: auto, selected: selected,
         presence: PLATFORMS.filter(function (p) { return cat.presence.has(p); })
       });
     });
@@ -253,6 +259,7 @@
       p.variants.add(b.display);
       p.totalRows += 1;
       p.fromCsv = true; // availability comes from the CSVs where this page appears
+      if (b.isComponent) p.isComponent = true;
       p.presence.add(b.srcDefault);
       b.tokens.forEach(function (t) { p.platforms.add(t); p.counts[t] += 1; });
       var cp = ensureCheckpoint(p.checkpoints, b.cpKey, b.cpLabel, b.sc, b.group);
@@ -274,6 +281,7 @@
       var p = ensurePage(key, name);
       (mp.platforms || []).forEach(function (t) { if (PLATFORMS.indexOf(t) >= 0) p.presence.add(t); });
       p.isManual = true;
+      if (mp.isComponent) p.isComponent = true;
     });
 
     var realPageKeys = Array.from(pagesMap.keys());
@@ -389,7 +397,7 @@
       var key = entry[0], p = entry[1];
       return {
         key: key, display: p.display, variants: Array.from(p.variants),
-        hasVariantMismatch: p.variants.size > 1, isSiteWide: false, isManual: !!p.isManual,
+        hasVariantMismatch: p.variants.size > 1, isSiteWide: false, isManual: !!p.isManual, isComponent: !!p.isComponent,
         presence: PLATFORMS.filter(function (pl) { return p.presence.has(pl); }),
         redistributedFrom: Array.from(p.redistributedFrom),
         platforms: p.platforms, counts: p.counts, coverage: p.platforms.size, totalRows: p.totalRows,
@@ -402,7 +410,10 @@
     var ruleGroups = Array.from(rulesMap.values())
       .map(function (rg) {
         return { ruleId: rg.ruleId, sc: rg.sc, checkpoint: rg.checkpoint, summary: rg.summary,
-          pages: Array.from(rg.pages, function (kv) { return { key: kv[0], display: kv[1].display, platforms: kv[1].platforms }; }) };
+          pages: Array.from(rg.pages, function (kv) {
+            var pg = pagesMap.get(kv[0]);
+            return { key: kv[0], display: kv[1].display, platforms: kv[1].platforms, isComponent: !!(pg && pg.isComponent) };
+          }) };
       })
       .sort(function (a, b) { return compareSC(a.sc, b.sc) || a.checkpoint.localeCompare(b.checkpoint); });
 

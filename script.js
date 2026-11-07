@@ -28,6 +28,16 @@
   };
 
   let CONFIG = DEFAULT_CONFIG;
+
+  // "Components as pages" variant (opened via components-as-pages.html, i.e.
+  // index.html?mode=components-as-pages): no component mapping step — each component is
+  // listed under its own name with its own issue platforms, exactly like a page.
+  const COMPONENTS_AS_PAGES = new URLSearchParams(location.search).get('mode') === 'components-as-pages';
+  if (COMPONENTS_AS_PAGES) {
+    document.title = 'RWD Coverage Ledger (Components as pages)';
+    const h1 = document.querySelector('.masthead h1');
+    if (h1) h1.insertAdjacentHTML('beforeend', ' <span class="mode-badge">Components as pages</span>');
+  }
   let PLATFORMS = [];
 
   // Conformance Calculator data sources (the single source of truth for issue/VPAT
@@ -276,9 +286,10 @@
       config: CONFIG,
       includeClosed: state.includeClosed,
       sharedMap: state.sharedMap,
-      manualPages: state.manualPages.map(e => ({ name: e.name, platforms: manualEntryPlatforms(e) })),
+      manualPages: state.manualPages.map(e => ({ name: e.name, platforms: manualEntryPlatforms(e), isComponent: !!e.isComponent })),
       pwExplicit: state.projectWideExplicit,
-      pwIssueMap: state.pwIssueMap
+      pwIssueMap: state.pwIssueMap,
+      componentsAsPages: COMPONENTS_AS_PAGES
     });
 
     state.pages = model.pages;
@@ -380,6 +391,7 @@
             hasVariantMismatch: page.hasVariantMismatch,
             isSiteWide: page.isSiteWide,
             isManual: page.isManual,
+            isComponent: page.isComponent,
             platforms: new Set(),
             counts: emptyCounts(),
             totalRows: 0,
@@ -443,7 +455,7 @@
       // For prose-less rules, keep the first non-empty Summary as the VPAT fallback text.
       if (!m.summary && rg.summary) m.summary = rg.summary;
       rg.pages.forEach(pg => {
-        if (!m.pages.has(pg.key)) m.pages.set(pg.key, { display: pg.display, platforms: new Set(pg.platforms) });
+        if (!m.pages.has(pg.key)) m.pages.set(pg.key, { display: pg.display, platforms: new Set(pg.platforms), isComponent: !!pg.isComponent });
         else { const ex = m.pages.get(pg.key); pg.platforms.forEach(p => ex.platforms.add(p)); }
       });
     });
@@ -616,6 +628,7 @@
     state.pendingManualPlatforms = [];
     const input = document.getElementById('manualPageName');
     if (input) input.value = '';
+    setManualAsComponent(false);
     manualMsg('');
     syncChooserButtons();
   }
@@ -639,14 +652,35 @@
     manualMsg('');
   }
 
+  // "Add as component" (Components-as-pages tool only): the added entry is treated as a
+  // component — tagged Component and listed in the remarks' "following component(s)" clause.
+  function manualAsComponent(){
+    const cb = document.getElementById('manualAsComponent');
+    return !!(COMPONENTS_AS_PAGES && cb && cb.checked);
+  }
+  function setManualAsComponent(on){
+    const cb = document.getElementById('manualAsComponent');
+    if (cb) cb.checked = !!on;
+    syncManualKind();
+  }
+  function syncManualKind(){
+    const kind = manualAsComponent() ? 'component' : 'page';
+    const btn = document.getElementById('chooserConfirm');
+    if (btn) btn.textContent = 'Add ' + kind;
+    const q = document.getElementById('chooserQ');
+    if (q) q.textContent = 'Which platform is this ' + kind + ' present on?';
+  }
+
   // "Add page" confirmed — validate, then add. A page cannot be added without a name AND
   // at least one selected platform.
   function commitAddPage(){
     const input = document.getElementById('manualPageName');
     const name = (input.value || '').trim();
-    if (!name){ manualMsg('Please enter a page name.'); input.focus(); return; }
+    const asComponent = manualAsComponent();
+    const kind = asComponent ? 'component' : 'page';
+    if (!name){ manualMsg('Please enter a ' + kind + ' name.'); input.focus(); return; }
     const chosen = orderedPlatforms(state.pendingManualPlatforms);
-    if (!chosen.length){ manualMsg('Select at least one platform this page is present on.'); return; }
+    if (!chosen.length){ manualMsg('Select at least one platform this ' + kind + ' is present on.'); return; }
     const key = name.toLowerCase();
     const present = presenceForPageKey(key);
     const isNew = chosen.filter(p => !present.has(p));
@@ -654,13 +688,14 @@
       manualMsg('“' + name + '” is already present on ' + platformsLabel(chosen) + '. Nothing added.');
       return;
     }
-    state.manualPages.push({ id: ++state.manualSeq, name: name, platforms: chosen });
+    state.manualPages.push({ id: ++state.manualSeq, name: name, platforms: chosen, isComponent: asComponent });
     input.value = '';
     state.pendingManualPlatforms = [];
     syncChooserButtons();
+    setManualAsComponent(false);
     manualMsg('');
     recompute(); // structural: the new page joins the universe + every mapping list
-    announce('Added page ' + name + ' on ' + platformsLabel(chosen) + '.');
+    announce('Added ' + kind + ' ' + name + ' on ' + platformsLabel(chosen) + '.');
   }
 
   function removeManualPage(id){
@@ -677,7 +712,8 @@
     list.innerHTML = state.manualPages.map(e => {
       const label = platformsLabel(manualEntryPlatforms(e));
       return '<div class="manual-row">' +
-        '<span class="manual-row-name">' + escapeHtml(e.name) + '</span>' +
+        '<span class="manual-row-name">' + escapeHtml(e.name) +
+          (e.isComponent ? '<span class="page-tag component">Component</span>' : '') + '</span>' +
         '<span class="manual-row-plat">' + escapeHtml(label) + '</span>' +
         '<button class="btn ghost manual-remove" type="button" data-id="' + e.id + '" aria-label="Remove ' + escapeHtml(e.name) + ' (' + escapeHtml(label) + ')">Remove</button>' +
       '</div>';
@@ -691,7 +727,8 @@
     document.getElementById('pagePresenceCount').textContent = pages.length + ' page' + (pages.length === 1 ? '' : 's');
     document.getElementById('pagePresenceList').innerHTML = pages.map(page =>
       '<div class="page-presence-row">' +
-        '<span class="page-presence-name">' + escapeHtml(page.display) + '</span>' +
+        '<span class="page-presence-name">' + escapeHtml(page.display) +
+          (page.isComponent ? '<span class="page-tag component">Component</span>' : '') + '</span>' +
         '<span class="page-presence-platforms">' + escapeHtml(page.presence.length ? page.presence.join(', ') : 'No platform presence recorded') + '</span>' +
       '</div>'
     ).join('');
@@ -926,6 +963,7 @@
       const nameCell = escapeHtml(p.display) +
         (p.isSiteWide ? '<span class="page-tag">Site-wide</span>' : '') +
         (p.isManual ? '<span class="page-tag manual">Added</span>' : '') +
+        (p.isComponent ? '<span class="page-tag component">Component</span>' : '') +
         ((p.sources && p.sources.length) ? '<span class="via-flag" title="Coverage on this page redistributed from shared unit(s): ' + escapeHtml(p.sources.join(' / ')) + '">via ' + escapeHtml(p.sources.join(', ')) + '</span>' : '') +
         (p.hasVariantMismatch ? '<span class="variant-flag" title="Appears with different spelling/casing across files: ' + escapeHtml(p.variants.join(' / ')) + '">&#9888;</span>' : '') +
         (p.checkpointLabels.length > 1 ? '<span class="cp-count-flag" title="Via ' + p.checkpointLabels.length + ' checkpoints: ' + escapeHtml(p.checkpointLabels.join(' / ')) + '">' + p.checkpointLabels.length + ' checkpoints</span>' : '');
@@ -1305,6 +1343,14 @@
   document.getElementById('chooserCancel').addEventListener('click', resetChooser);
   document.getElementById('chooserConfirm').addEventListener('click', commitAddPage);
   document.getElementById('chooserAll').addEventListener('click', toggleAllPlatforms);
+  // Guarded: if the markup lacks the checkbox (e.g. a stale cached index.html), skip it
+  // rather than throwing — a throw here would leave every listener below unwired.
+  const asComponentWrap = document.getElementById('manualAsComponentWrap');
+  const asComponentCb = document.getElementById('manualAsComponent');
+  if (COMPONENTS_AS_PAGES && asComponentWrap && asComponentCb) {
+    asComponentWrap.hidden = false;
+    asComponentCb.addEventListener('change', () => { syncManualKind(); manualMsg(''); });
+  }
   document.querySelectorAll('#manualChooser .chooser-opt').forEach(btn => {
     btn.addEventListener('click', () => toggleChooserPlatform(btn.getAttribute('data-choice')));
   });

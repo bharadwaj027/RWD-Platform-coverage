@@ -224,6 +224,53 @@
   var D2 = VPATFormat.vpatRemark({hasProse:true, one:'X.', multiple:'X.', pages:[{display:'Contact', platforms:new Set(['Desktop'])}]}, CONFIG.platforms, VL);
   ok(!dupSet([D1,D2])[D1], 'same prose but different pages -> different final value -> not duplicate');
 
+  // ---- Components-as-pages variant: no mapping step, components listed like pages ----
+  log.push('\nComponents as pages (components-as-pages.html variant):');
+  var mCap = build({ componentsAsPages:true });
+  ok(mCap.sharedUnits.length === 0, 'no shared units -> component mapping section has nothing to show');
+  ok(page(mCap,'header') && page(mCap,'header').isComponent === true, 'Header component becomes a page, flagged isComponent');
+  ok(!page(build(),'header'), 'default mode unchanged: Header is NOT a page until mapped');
+  var rgCap = ruleG(mCap,'control-name-inaccessible');
+  ok(rgCap && rgCap.pages.length === 1 && rgCap.pages[0].display === 'Header' &&
+     eqArr(CONFIG.platforms.filter(function(p){return rgCap.pages[0].platforms.has(p);}), ['RWD Tablet','RWD Mobile']),
+     'Header rule lists the component itself with its own RWD Tablet + RWD Mobile platforms');
+  var rgFoot = ruleG(mCap,'status-message');
+  ok(rgFoot && rgFoot.pages.length === 1 && rgFoot.pages[0].display === 'Footer' && rgFoot.pages[0].platforms.size === 3,
+     'Footer rule lists Footer on all three platforms (not redistributed to Home/Contact)');
+  var capRemark = VPATFormat.vpatRemark({ hasProse:false, summary:rgCap.summary, pages:rgCap.pages }, CONFIG.platforms, VL);
+  ok(capRemark.indexOf('Header (Responsive Web Design Tablet, Responsive Web Design Mobile).') > 0, 'VPAT remark: component gets the RWD platform suffix like a page');
+  ok(!page(mCap,'home').checkpoints.some(function(c){ return c.sc === '4.1.2' || c.sc === '4.1.3'; }), 'component issues are NOT copied onto real pages');
+
+  // ---- Components as pages: separate component / page clauses in the remark ----
+  log.push('\nComponent and page clauses in VPAT remarks:');
+  ok(capRemark.indexOf('This occurs on the following component: Header (') > 0, 'single component -> "following component:" clause');
+  function cpRemark(entries){ return VPATFormat.vpatRemark({ hasProse:true, one:'X is wrong.', multiple:'X is wrong.', pages:entries }, CONFIG.platforms, VL); }
+  var C1 = { display:'Header', platforms:new Set(['RWD Tablet','RWD Mobile']), isComponent:true };
+  var C2 = { display:'Footer', platforms:new Set(['Desktop']), isComponent:true };
+  var P1 = { display:'Home', platforms:new Set(['Desktop']) };
+  var P2 = { display:'Contact', platforms:new Set(['Desktop','RWD Tablet']) };
+  ok(cpRemark([C1,C2,P1,P2]) === 'X is wrong. This occurs on the following components: Header (Responsive Web Design Tablet, Responsive Web Design Mobile); Footer (Desktop) and the following pages: Home (Desktop); Contact (Desktop, Responsive Web Design Tablet).',
+     'components + pages -> "following components: … and the following pages: …"');
+  ok(cpRemark([P1,C1]) === 'X is wrong. This occurs on the following component: Header (Responsive Web Design Tablet, Responsive Web Design Mobile) and the following page: Home (Desktop).',
+     'components listed first even when a page came first; singular wording for one of each');
+  ok(cpRemark([C1,C2]) === 'X is wrong. This occurs on the following components: Header (Responsive Web Design Tablet, Responsive Web Design Mobile); Footer (Desktop).',
+     'components only -> no page clause');
+  ok(cpRemark([P1,P2]) === 'X is wrong. This occurs on the following pages: Home (Desktop); Contact (Desktop, Responsive Web Design Tablet).',
+     'pages only -> wording unchanged');
+
+  // ---- Manually added component ----
+  log.push('\nManually added component (Add as component):');
+  var mManC = build({ componentsAsPages:true, manualPages:[{ name:'Cookie Banner', platforms:['Desktop','RWD Mobile'], isComponent:true }, { name:'About', platforms:['Desktop'] }] });
+  ok(page(mManC,'cookie banner') && page(mManC,'cookie banner').isComponent === true && page(mManC,'cookie banner').isManual === true, 'manual entry added as component is flagged isComponent (and Added)');
+  ok(page(mManC,'about') && page(mManC,'about').isComponent === false, 'manual entry added as page stays a page');
+  ok(mManC.pageCatalog.some(function(c){ return c.key === 'cookie banner' && c.isComponent; }), 'manual component carries the flag into the page list');
+  var mManMap = build({ componentsAsPages:true, manualPages:[{ name:'Cookie Banner', platforms:['Desktop','RWD Mobile'], isComponent:true }],
+    pwIssueMap:{ 'PW-DESK': { mode:'pages', pages:['cookie banner','home'] } } });
+  var rgLand = ruleG(mManMap,'landmark');
+  var landRemark = VPATFormat.vpatRemark({ hasProse:false, summary:rgLand.summary, pages:rgLand.pages }, CONFIG.platforms, VL);
+  ok(landRemark.indexOf('This occurs on the following component: Cookie Banner (Desktop) and the following page: Home (Desktop).') > 0,
+     'project-wide issue mapped onto a manual component -> listed in the component clause');
+
   var v=document.getElementById('verdict');
   if(fail){ v.className='verdict fail'; v.textContent='FAILED — '+fail+' of '+checks+' checks failed'; }
   else { v.className='verdict pass'; v.textContent='PASSED — all '+checks+' checks'; }

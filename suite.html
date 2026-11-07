@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>VPAT Tools Suite</title>
+<!-- One page, three tools. Each tab shows its tool in an iframe that is loaded the first time
+     the tab is opened and then kept alive, so uploads and mappings survive tab switches.
+     The VPAT Merger is a separate project (bharadwaj027/vpat-merger) served from GitHub Pages. -->
+<style>
+  :root{
+    --paper:#F5F7F4; --ink:#16241F; --ink-soft:#4B5A54; --line:#D8DED9;
+    --indigo:#2E3A6B; --indigo-deep:#1F2850; --indigo-ink:#EDEFF7; --indigo-soft:#B9C2E8;
+    --amber:#A0651C; --amber-bg:#F5E9D6;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; height:100%; background:var(--paper); color:var(--ink);
+    font-family:'IBM Plex Sans', system-ui, sans-serif; font-size:14.5px; }
+  body{ display:flex; flex-direction:column; }
+  :focus-visible{ outline:3px solid #fff; outline-offset:2px; border-radius:4px; }
+
+  .suite-bar{ background:linear-gradient(180deg, var(--indigo) 0%, var(--indigo-deep) 100%);
+    color:var(--indigo-ink); padding:12px 24px 0; border-bottom:3px solid var(--indigo-deep); }
+  .suite-bar-inner{ max-width:1180px; margin:0 auto; }
+  .suite-title{ margin:0 0 10px; font-family:'Fraunces', Georgia, serif; font-weight:600; font-size:19px; }
+  .suite-title span{ display:block; font-family:'IBM Plex Mono', monospace; font-size:10.5px;
+    font-weight:400; letter-spacing:.14em; text-transform:uppercase; color:var(--indigo-soft); }
+
+  [role="tablist"]{ display:flex; gap:4px; flex-wrap:wrap; }
+  [role="tab"]{ appearance:none; border:0; cursor:pointer; font:inherit; font-weight:500;
+    color:var(--indigo-ink); background:rgba(255,255,255,.08);
+    padding:9px 16px 10px; border-radius:6px 6px 0 0; display:flex; align-items:center; gap:8px; }
+  [role="tab"]:hover{ background:rgba(255,255,255,.16); }
+  [role="tab"][aria-selected="true"]{ background:var(--paper); color:var(--ink); }
+  .tab-note{ font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:.06em;
+    text-transform:uppercase; padding:1px 6px; border-radius:4px;
+    background:var(--amber-bg); color:var(--amber); }
+
+  main{ flex:1; display:flex; min-height:0; }
+  [role="tabpanel"]{ flex:1; display:flex; flex-direction:column; min-height:0; }
+  [role="tabpanel"][hidden]{ display:none; }
+  .panel-tools{ display:flex; justify-content:flex-end; gap:16px; padding:6px 24px;
+    font-size:12.5px; color:var(--ink-soft); border-bottom:1px solid var(--line); }
+  .panel-tools a{ color:var(--indigo); }
+  iframe{ flex:1; width:100%; border:0; background:var(--paper); }
+
+  @media (max-width:600px){
+    .suite-bar{ padding:10px 16px 0; }
+    [role="tab"]{ padding:8px 10px; font-size:13px; }
+    .panel-tools{ padding:6px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="suite-bar">
+  <div class="suite-bar-inner">
+    <h1 class="suite-title"><span>VPAT support</span>VPAT Tools Suite</h1>
+    <div role="tablist" aria-label="Tools">
+      <button role="tab" id="tab-rwd" aria-controls="panel-rwd" aria-selected="true" tabindex="0"
+              data-hash="rwd">RWD Coverage</button>
+      <button role="tab" id="tab-components" aria-controls="panel-components" aria-selected="false" tabindex="-1"
+              data-hash="components">RWD Coverage <span class="tab-note">Components as pages</span></button>
+      <button role="tab" id="tab-merger" aria-controls="panel-merger" aria-selected="false" tabindex="-1"
+              data-hash="merger">VPAT Merger</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section role="tabpanel" id="panel-rwd" aria-labelledby="tab-rwd">
+    <div class="panel-tools"><a href="index.html" target="_blank" rel="noopener">Open in new tab</a></div>
+    <iframe title="RWD Coverage" data-src="index.html"></iframe>
+  </section>
+  <section role="tabpanel" id="panel-components" aria-labelledby="tab-components" hidden>
+    <div class="panel-tools"><a href="index.html?mode=components-as-pages" target="_blank" rel="noopener">Open in new tab</a></div>
+    <iframe title="RWD Coverage, components as pages" data-src="index.html?mode=components-as-pages"></iframe>
+  </section>
+  <section role="tabpanel" id="panel-merger" aria-labelledby="tab-merger" hidden>
+    <div class="panel-tools">
+      <span>Needs an internet connection (hosted on GitHub Pages).</span>
+      <a href="https://bharadwaj027.github.io/vpat-merger/" target="_blank" rel="noopener">Open in new tab</a>
+    </div>
+    <iframe title="VPAT Merger" data-src="https://bharadwaj027.github.io/vpat-merger/"></iframe>
+  </section>
+</main>
+
+<script>
+(function(){
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+
+  function select(tab, focus){
+    tabs.forEach(function(t){
+      var on = t === tab;
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
+      var panel = document.getElementById(t.getAttribute('aria-controls'));
+      panel.hidden = !on;
+      // Load each tool the first time its tab opens; never reload, so its state is kept.
+      // Local tools get a one-off query string so the browser can't show a stale cached copy.
+      var frame = panel.querySelector('iframe');
+      if (on && !frame.getAttribute('src')) {
+        var src = frame.getAttribute('data-src');
+        if (!/^https?:/.test(src)) src += (src.indexOf('?') < 0 ? '?' : '&') + 't=' + Date.now();
+        frame.setAttribute('src', src);
+      }
+    });
+    if (focus) tab.focus();
+    if (history.replaceState) history.replaceState(null, '', '#' + tab.getAttribute('data-hash'));
+  }
+
+  tabs.forEach(function(tab, i){
+    tab.addEventListener('click', function(){ select(tab, false); });
+    tab.addEventListener('keydown', function(e){
+      var next = null;
+      if (e.key === 'ArrowRight') next = tabs[(i + 1) % tabs.length];
+      else if (e.key === 'ArrowLeft') next = tabs[(i - 1 + tabs.length) % tabs.length];
+      else if (e.key === 'Home') next = tabs[0];
+      else if (e.key === 'End') next = tabs[tabs.length - 1];
+      if (next){ e.preventDefault(); select(next, true); }
+    });
+  });
+
+  // Open the tab named in the URL (suite.html#merger), otherwise the first one.
+  var fromHash = tabs.filter(function(t){ return '#' + t.getAttribute('data-hash') === location.hash; })[0];
+  select(fromHash || tabs[0], false);
+})();
+</script>
+</body>
+</html>

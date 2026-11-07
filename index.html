@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>RWD Coverage Ledger</title>
-<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="style.css?v=2" />
 <script src="papaparse.min.js"></script>
 </head>
 <body>
@@ -101,6 +101,9 @@
           <button class="btn ghost chooser-opt" type="button" data-choice="RWD Tablet" aria-pressed="false">RWD Tablet</button>
           <button class="btn ghost chooser-all" type="button" id="chooserAll" aria-pressed="false" title="Select all three platforms">All platforms</button>
         </div>
+        <label class="chooser-kind" id="manualAsComponentWrap" hidden>
+          <input type="checkbox" id="manualAsComponent" /> Add as component
+        </label>
         <button class="btn primary chooser-confirm" type="button" id="chooserConfirm">Add page</button>
         <button class="btn ghost chooser-cancel" type="button" id="chooserCancel">Cancel</button>
       </div>
@@ -207,9 +210,9 @@
   <div id="ariaLive" class="sr-only" role="status" aria-live="polite"></div>
 </main>
 
-<script src="vpat-format.js"></script>
-<script src="redistribute.js"></script>
-<script src="script.js" defer></script>
+<script src="vpat-format.js?v=2"></script>
+<script src="redistribute.js?v=2"></script>
+<script src="script.js?v=2" defer></script>
 
 </body>
 </html>
