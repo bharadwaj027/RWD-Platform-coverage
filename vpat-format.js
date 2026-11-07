@@ -32,6 +32,20 @@
     return pages.map(function (pg) { return vpatPageLine(pg, platforms, vpatLabels); }).join('; ') + '.';
   }
 
+  // Components (pg.isComponent, only produced by the "Components as pages" tool) get their
+  // own clause ahead of the pages:
+  //   "This occurs on the following component(s): Header (…) and the following page(s): Home (…)."
+  // With no components this returns null and the regular page clause is used unchanged.
+  function vpatComponentClause(entries, platforms, vpatLabels) {
+    var comps = entries.filter(function (pg) { return pg.isComponent; });
+    if (!comps.length) return null;
+    var pages = entries.filter(function (pg) { return !pg.isComponent; });
+    function lines(list) { return list.map(function (pg) { return vpatPageLine(pg, platforms, vpatLabels); }).join('; '); }
+    var s = 'This occurs on the following ' + (comps.length === 1 ? 'component' : 'components') + ': ' + lines(comps);
+    if (pages.length) s += ' and the following ' + (pages.length === 1 ? 'page' : 'pages') + ': ' + lines(pages);
+    return s + '.';
+  }
+
   // Build the full paste-ready VPAT remark.
   //   m = { one, multiple, hasProse, pages:[{display, platforms}] }
   // Selection follows the Conformance Calculator: one applicable page -> VPAT Text One,
@@ -60,6 +74,8 @@
     if (!prose) return pageList;
     prose = prose.replace(/\s+$/, ''); // strip only trailing whitespace before the clause
     if (/following page/i.test(prose)) return prose + ' ' + pageList;
+    var compClause = vpatComponentClause(m.pages, platforms, vpatLabels);
+    if (compClause) return prose + ' ' + compClause;
     var clause = ' This occurs on the following ' + (m.pages.length === 1 ? 'page' : 'pages') + ': ';
     return prose + clause + pageList;
   }
@@ -68,6 +84,7 @@
     vpatLabel: vpatLabel,
     vpatPageLine: vpatPageLine,
     vpatPageList: vpatPageList,
+    vpatComponentClause: vpatComponentClause,
     vpatRemark: vpatRemark
   };
 

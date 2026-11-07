@@ -4,11 +4,20 @@ A client-side tool that reads three axe Auditor CSV exports (Desktop/Web, RWD Ta
 RWD Mobile) and builds a Success Criteria &times; Page &times; Platform matrix for VPAT authoring.
 No backend, no build step — just static files.
 
+**Live (GitHub Pages, published from `main`):**
+
+- **VPAT Tools Suite** (all tools in tabs): https://bharadwaj027.github.io/RWD-Platform-coverage/suite.html
+- RWD Coverage: https://bharadwaj027.github.io/RWD-Platform-coverage/
+- RWD Coverage, components as pages: https://bharadwaj027.github.io/RWD-Platform-coverage/components-as-pages.html
+- VPAT Merger (separate repo): https://bharadwaj027.github.io/vpat-merger/
+
 ## Files
 
 | File          | What it is |
 |---------------|------------|
 | `index.html`  | Page structure/markup. Loads `papaparse.min.js` locally, then `style.css` and `script.js`. |
+| `suite.html` | **VPAT Tools Suite** — one page with three tabs: RWD Coverage, RWD Coverage (Components as pages), and the VPAT Merger (separate project `bharadwaj027/vpat-merger`, loaded from GitHub Pages, needs internet). Each tool loads on first open and keeps its state when you switch tabs. `suite.html#merger` opens a tab directly. |
+| `components-as-pages.html` | Opens the "Components as pages" variant of the tool (no component mapping; components listed like pages) — see below. |
 | `style.css`   | All styling. Design tokens (colors, fonts) are CSS variables at the top of the `:root` block. |
 | `script.js`   | App presentation + wiring: rendering the matrix, search/filter/sort, CSV/VPAT export, and the shared-unit mapping UI. The page/rule model itself is built by `redistribute.js`. |
 | `redistribute.js` | The page/rule model builder (`RWDModel.build`), kept DOM-free so the tool and its regression test run the exact same code. Reads every CSV row, builds the page universe (CSV + manual pages, each with platform presence), separates **components** and **marked project-wide pages** from real pages, and redistributes each mapped component / project-wide issue onto its target pages — see the sections below. |
@@ -125,6 +134,27 @@ selections persist as you toggle Include-Closed or upload more files; units/page
 from the uploads are pruned from the mapping.
 
 Run `test/redistribution.html` in a browser to confirm this behavior end-to-end.
+
+## Components as pages (separate tool)
+
+Open **`components-as-pages.html`** (or `index.html?mode=components-as-pages`) for a variant with
+**no component mapping step**. Each component (Header, Footer, …) is treated as an ordinary page:
+it is listed under its own name, tagged **Component**, with the platforms taken from its own
+issues — the same way a page's platforms are calculated. Its issues are not copied onto other
+pages. In the VPAT remarks it appears like any page, e.g.
+`Header (Responsive Web Design Tablet, Responsive Web Design Mobile)`. Components get their own
+clause ahead of the pages:
+
+```
+… This occurs on the following components: Header (Desktop); Footer (Desktop) and the following page: Home (Desktop).
+```
+
+(`component`/`components` and `page`/`pages` follow the count; with no components the usual
+page clause is unchanged.) In **Add pages manually**, tick **Add as component** to add an entry
+as a component instead of a page — it is tagged Component and listed in the component clause.
+Everything else (manual
+pages, project-wide mapping, exports) works as in the main tool. Both entry points run the same
+code (`componentsAsPages` option of `RWDModel.build`).
 
 ## Add pages manually
 
